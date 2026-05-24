@@ -8,6 +8,35 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         * { font-family: 'Poppins', sans-serif; }
+        
+        .swipe-item {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .swipe-item-content {
+            display: flex;
+            transition: transform 0.3s ease-out;
+            touch-action: pan-y;
+        }
+        
+        .swipe-item.swiped .swipe-item-content {
+            transform: translateX(-60px);
+        }
+        
+        .swipe-delete {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 60px;
+            background-color: #ef4444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -69,6 +98,29 @@
                 } catch (e) {
                     console.error('Save error:', e);
                 }
+            }
+
+            // SWIPE HANDLING
+            initSwipeHandlers() {
+                setTimeout(() => {
+                    document.querySelectorAll('[data-swipe-item]').forEach(el => {
+                        let touchStartX = 0;
+                        let touchEndX = 0;
+                        
+                        el.addEventListener('touchstart', (e) => {
+                            touchStartX = e.changedTouches[0].screenX;
+                        });
+                        
+                        el.addEventListener('touchend', (e) => {
+                            touchEndX = e.changedTouches[0].screenX;
+                            if (touchStartX - touchEndX > 50) {
+                                el.classList.add('swiped');
+                            } else if (touchEndX - touchStartX > 50) {
+                                el.classList.remove('swiped');
+                            }
+                        });
+                    });
+                }, 100);
             }
 
             // PEOPLE METHODS
@@ -401,6 +453,10 @@
                 return this.gifts.filter(g => g.personName === personName);
             }
 
+            getGiftsForEventAndPerson(eventId, personName) {
+                return this.gifts.filter(g => g.eventId === eventId && g.personName === personName);
+            }
+
             isEventUpcoming(event) {
                 const [day, month, year] = event.date.split('-');
                 const eventDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
@@ -431,17 +487,6 @@
                 });
             }
 
-            getEventsByMonth() {
-                const sorted = this.getSortedEvents();
-                const grouped = {};
-                sorted.forEach(event => {
-                    const monthKey = this.getMonthYear(event.date);
-                    if (!grouped[monthKey]) grouped[monthKey] = [];
-                    grouped[monthKey].push(event);
-                });
-                return grouped;
-            }
-
             // RENDER METHODS
             renderPeopleTab() {
                 let html = '';
@@ -457,32 +502,33 @@
                     const upcomingAge = this.getUpcomingAge(person);
                     const bdayStr = this.formatDate(person.birthday) + ' (turns ' + upcomingAge + ')';
                     
-                    html += '<div class="mb-3 bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><button onclick="window.app.expandPerson(' + person.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900 text-lg">' + person.fullName + '</h3><p class="text-sm text-gray-600">' + bdayStr + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
+                    html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + person.id + '"><div class="swipe-item-content bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><div class="w-full"><button onclick="window.app.expandPerson(' + person.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900 text-lg">' + person.fullName + '</h3><p class="text-sm text-gray-600">' + bdayStr + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
 
-                    if (isExpanded) {
-                        if (isEditing) {
-                            html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><input type="text" id="edit_name_' + person.id + '" value="' + person.fullName + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Full Name"><input type="text" id="edit_birthday_' + person.id + '" value="' + person.birthday + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Birthday (DD-MM)"><input type="text" id="edit_likes_' + person.id + '" value="' + (person.likes || '') + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Likes"><input type="text" id="edit_dislikes_' + person.id + '" value="' + (person.dislikes || '') + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Dislikes"><textarea id="edit_notes_' + person.id + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm resize-none" rows="2" placeholder="Notes">' + (person.notes || '') + '</textarea><div class="flex gap-2"><button onclick="window.app.updatePerson(' + person.id + ', { fullName: document.getElementById(\'edit_name_' + person.id + '\').value, birthday: document.getElementById(\'edit_birthday_' + person.id + '\').value, likes: document.getElementById(\'edit_likes_' + person.id + '\').value, dislikes: document.getElementById(\'edit_dislikes_' + person.id + '\').value, notes: document.getElementById(\'edit_notes_' + person.id + '\').value }); window.app.toggleEditPerson(' + person.id + ');" class="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">Save</button><button onclick="window.app.toggleEditPerson(' + person.id + ')" class="flex-1 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg font-medium">Cancel</button></div></div>';
-                        } else {
-                            html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><div class="space-y-2"><div class="bg-yellow-50 rounded p-3 border border-yellow-200"><p class="text-xs uppercase text-yellow-900 tracking-wide font-medium mb-1">Likes</p><p class="text-sm text-yellow-900">' + (person.likes || 'Not specified') + '</p></div><div class="bg-red-50 rounded p-3 border border-red-200"><p class="text-xs uppercase text-red-900 tracking-wide font-medium mb-1">Dislikes</p><p class="text-sm text-red-900">' + (person.dislikes || 'Not specified') + '</p></div><div class="bg-purple-50 rounded p-3 border border-purple-200"><p class="text-xs uppercase text-purple-900 tracking-wide font-medium mb-1">Notes</p><p class="text-sm text-purple-900">' + (person.notes || 'No notes') + '</p></div></div>';
-                            
-                            html += '<div class="flex items-center gap-3 pt-2"><input type="checkbox" id="christmas_' + person.id + '" ' + (person.includeInChristmas ? 'checked' : '') + ' onchange="window.app.updatePerson(' + person.id + ', { includeInChristmas: this.checked })" class="w-4 h-4 accent-rose-500"><label for="christmas_' + person.id + '" class="text-sm font-medium text-gray-900">Include in Christmas</label></div>';
-                            
-                            if (personGifts.length > 0) {
-                                html += '<div class="border-t border-rose-100 pt-3"><p class="text-xs uppercase text-gray-500 tracking-wide mb-2 font-medium">Gifts assigned:</p><div class="space-y-1">';
-                                personGifts.forEach(gift => {
-                                    const event = this.events.find(e => e.id === gift.eventId);
-                                    html += '<div class="text-sm text-gray-700">• ' + gift.giftName + (event ? ' (' + event.name + ')' : '') + '</div>';
-                                });
-                                html += '</div></div>';
+                        if (isExpanded) {
+                            if (isEditing) {
+                                html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><input type="text" id="edit_name_' + person.id + '" value="' + person.fullName + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Full Name"><input type="text" id="edit_birthday_' + person.id + '" value="' + person.birthday + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Birthday (DD-MM)"><input type="text" id="edit_likes_' + person.id + '" value="' + (person.likes || '') + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Likes"><input type="text" id="edit_dislikes_' + person.id + '" value="' + (person.dislikes || '') + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm" placeholder="Dislikes"><textarea id="edit_notes_' + person.id + '" class="w-full p-2 rounded-lg border border-rose-100 text-sm resize-none" rows="2" placeholder="Notes">' + (person.notes || '') + '</textarea><div class="flex gap-2"><button onclick="window.app.updatePerson(' + person.id + ', { fullName: document.getElementById(\'edit_name_' + person.id + '\').value, birthday: document.getElementById(\'edit_birthday_' + person.id + '\').value, likes: document.getElementById(\'edit_likes_' + person.id + '\').value, dislikes: document.getElementById(\'edit_dislikes_' + person.id + '\').value, notes: document.getElementById(\'edit_notes_' + person.id + '\').value }); window.app.toggleEditPerson(' + person.id + ');" class="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">Save</button><button onclick="window.app.toggleEditPerson(' + person.id + ')" class="flex-1 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg font-medium">Cancel</button></div></div>';
+                            } else {
+                                html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><div class="space-y-2"><div class="bg-yellow-50 rounded p-3 border border-yellow-200"><p class="text-xs uppercase text-yellow-900 tracking-wide font-medium mb-1">Likes</p><p class="text-sm text-yellow-900">' + (person.likes || 'Not specified') + '</p></div><div class="bg-red-50 rounded p-3 border border-red-200"><p class="text-xs uppercase text-red-900 tracking-wide font-medium mb-1">Dislikes</p><p class="text-sm text-red-900">' + (person.dislikes || 'Not specified') + '</p></div><div class="bg-purple-50 rounded p-3 border border-purple-200"><p class="text-xs uppercase text-purple-900 tracking-wide font-medium mb-1">Notes</p><p class="text-sm text-purple-900">' + (person.notes || 'No notes') + '</p></div></div>';
+                                
+                                html += '<div class="flex items-center gap-3 pt-2"><input type="checkbox" id="christmas_' + person.id + '" ' + (person.includeInChristmas ? 'checked' : '') + ' onchange="window.app.updatePerson(' + person.id + ', { includeInChristmas: this.checked })" class="w-4 h-4 accent-rose-500"><label for="christmas_' + person.id + '" class="text-sm font-medium text-gray-900">Include in Christmas</label></div>';
+                                
+                                if (personGifts.length > 0) {
+                                    html += '<div class="border-t border-rose-100 pt-3"><p class="text-xs uppercase text-gray-500 tracking-wide mb-2 font-medium">Gifts assigned:</p><div class="space-y-1">';
+                                    personGifts.forEach(gift => {
+                                        const event = this.events.find(e => e.id === gift.eventId);
+                                        html += '<div class="text-sm text-gray-700">• ' + gift.giftName + (event ? ' (' + event.name + ')' : '') + '</div>';
+                                    });
+                                    html += '</div></div>';
+                                }
+
+                                html += '<div class="flex gap-2"><button onclick="window.app.toggleEditPerson(' + person.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="document.querySelector(\'[data-person-id=\\"' + person.id + '\\"]\').classList.add(\'swiped\')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
                             }
-
-                            html += '<div class="flex gap-2"><button onclick="window.app.toggleEditPerson(' + person.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="window.app.deletePerson(' + person.id + ')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Remove</button></div>';
+                            html += '</div>';
                         }
+                        html += '</div></div>';
+                        html += '<div class="swipe-delete" onclick="window.app.deletePerson(' + person.id + ')">Delete</div>';
                         html += '</div>';
-                    }
-
-                    html += '</div>';
-                });
+                    });
 
                 return html;
             }
@@ -553,7 +599,7 @@
                         const budgetStatus = this.getBudgetStatus(event);
                         
                         if (event.type === 'birthday') {
-                            html += '<div class="mb-3 bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><button onclick="window.app.expandEvent(' + event.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + event.name + '</h3><p class="text-sm text-gray-600">Budget: £' + event.budget.toFixed(2) + ' • Gifts: ' + eventGifts.length + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
+                            html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + event.id + '"><div class="swipe-item-content bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><div class="w-full"><button onclick="window.app.expandEvent(' + event.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + event.name + '</h3><p class="text-sm text-gray-600">Budget: £' + event.budget.toFixed(2) + ' • Gifts: ' + eventGifts.length + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
                             
                             if (isExpanded) {
                                 if (isEditing) {
@@ -571,14 +617,16 @@
                                         html += '</div></div>';
                                     }
 
-                                    html += '<div class="flex gap-2"><button onclick="window.app.toggleEditEvent(' + event.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="window.app.deleteEvent(' + event.id + ')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
+                                    html += '<div class="flex gap-2"><button onclick="window.app.toggleEditEvent(' + event.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="document.querySelector(\'[data-event-id=\\"' + event.id + '\\"]\').classList.add(\'swiped\')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
                                 }
                                 html += '</div>';
                             }
+                            html += '</div></div>';
+                            html += '<div class="swipe-delete" onclick="window.app.deleteEvent(' + event.id + ')">Delete</div>';
                             html += '</div>';
                         } else if (event.type === 'christmas') {
                             const peopleList = event.people.map(p => p.name).join(', ');
-                            html += '<div class="mb-3 bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden"><button onclick="window.app.expandEvent(' + event.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-amber-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + event.name + '</h3><p class="text-sm text-gray-600">Budget: £' + event.budget.toFixed(2) + ' • Spent: £' + spent.toFixed(2) + ' ' + budgetStatus + '</p></div><svg class="w-5 h-5 text-amber-600 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
+                            html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + event.id + '"><div class="swipe-item-content bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden"><div class="w-full"><button onclick="window.app.expandEvent(' + event.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-amber-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + event.name + '</h3><p class="text-sm text-gray-600">Budget: £' + event.budget.toFixed(2) + ' • Spent: £' + spent.toFixed(2) + ' ' + budgetStatus + '</p></div><svg class="w-5 h-5 text-amber-600 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
                             
                             if (isExpanded) {
                                 if (isEditing) {
@@ -586,27 +634,30 @@
                                 } else {
                                     html += '<div class="border-t border-amber-200 p-4 bg-gradient-to-br from-amber-50/50 to-transparent space-y-3"><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Budget</p><p class="text-lg font-bold text-gray-900">£' + event.budget.toFixed(2) + '</p></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Notes</p><p class="text-sm text-gray-900">' + (event.notes || 'No notes') + '</p></div>';
                                     
-                                    html += '<div><p class="text-xs uppercase text-gray-500 mb-2 font-medium">People</p><div class="space-y-2">';
+                                    html += '<div><p class="text-xs uppercase text-gray-500 mb-2 font-medium">People & Gifts</p>';
                                     event.people.forEach(person => {
-                                        html += '<div class="flex items-center justify-between bg-yellow-50 rounded p-2 border border-yellow-200"><span class="text-sm text-gray-900">' + person.name + '</span><button onclick="window.app.removePersonFromChristmas(' + event.id + ', \'' + person.name + '\')" class="text-gray-400 hover:text-red-500">✕</button></div>';
+                                        const personGifts = this.getGiftsForEventAndPerson(event.id, person.name);
+                                        html += '<div class="bg-yellow-50 rounded-lg p-3 border border-yellow-200 mb-2"><div class="flex items-center justify-between mb-2"><span class="text-sm font-medium text-gray-900">' + person.name + '</span><button onclick="window.app.removePersonFromChristmas(' + event.id + ', \'' + person.name + '\')" class="text-gray-400 hover:text-red-500">✕</button></div>';
+                                        if (personGifts.length > 0) {
+                                            html += '<div class="space-y-1 ml-3">';
+                                            personGifts.forEach(gift => {
+                                                html += '<div class="flex items-center justify-between text-sm text-gray-700"><span>• ' + gift.giftName + ' (£' + gift.price.toFixed(2) + ')</span><button onclick="window.app.removeGiftFromEvent(' + event.id + ', ' + gift.id + ')" class="text-gray-400 hover:text-red-500 text-xs">remove</button></div>';
+                                            });
+                                            html += '</div>';
+                                        }
+                                        html += '</div>';
                                     });
-                                    html += '</div><select id="addPerson_' + event.id + '" class="w-full p-2 rounded-lg border border-amber-200 text-sm"><option value="">Add person</option>' + this.people.filter(p => !event.people.find(ep => ep.name === p.fullName)).map(p => '<option value="' + p.fullName + '">' + p.fullName + '</option>').join('') + '</select><button onclick="const pName = document.getElementById(\'addPerson_' + event.id + '\').value; if(pName) window.app.addPersonToChristmas(' + event.id + ', pName)" class="w-full py-1 text-sm bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-medium">Add Person</button></div>';
                                     
-                                    html += '<div><p class="text-xs uppercase text-gray-500 mb-2 font-medium">Add Gifts</p><div class="space-y-2"><select id="existingGifts_' + event.id + '" class="w-full p-2 rounded-lg border border-amber-200 text-sm"><option value="">Select existing gift</option>' + this.gifts.filter(g => !eventGifts.find(eg => eg.id === g.id)).map(g => '<option value="' + g.id + '">' + g.giftName + '</option>').join('') + '</select><button onclick="const gId = document.getElementById(\'existingGifts_' + event.id + '\').value; if(gId) window.app.addGiftToEvent(' + event.id + ', parseInt(gId))" class="w-full py-2 text-sm bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-medium">Add Existing Gift</button><button onclick="window.app.startNewGiftForEvent(' + event.id + ')" class="w-full py-2 text-sm bg-green-200 hover:bg-green-300 text-green-900 rounded-lg font-medium">+ Create New Gift</button></div></div>';
+                                    html += '<select id="addPerson_' + event.id + '" class="w-full p-2 rounded-lg border border-amber-200 text-sm mt-2"><option value="">Add person</option>' + this.people.filter(p => !event.people.find(ep => ep.name === p.fullName)).map(p => '<option value="' + p.fullName + '">' + p.fullName + '</option>').join('') + '</select><button onclick="const pName = document.getElementById(\'addPerson_' + event.id + '\').value; if(pName) window.app.addPersonToChristmas(' + event.id + ', pName)" class="w-full py-1 mt-2 text-sm bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-medium">Add Person</button></div>';
                                     
-                                    if (eventGifts.length > 0) {
-                                        html += '<div class="border-t border-amber-200 pt-3"><p class="text-xs uppercase text-gray-500 mb-2 font-medium">Assigned Gifts:</p><div class="space-y-2">';
-                                        eventGifts.forEach(gift => {
-                                            const giftPersonStr = gift.personName ? ' → ' + gift.personName : '';
-                                            html += '<div class="flex items-center justify-between bg-yellow-50 rounded p-2 border border-yellow-200"><span class="text-sm text-gray-900">' + gift.giftName + giftPersonStr + '</span><button onclick="window.app.removeGiftFromEvent(' + event.id + ', ' + gift.id + ')" class="text-gray-400 hover:text-red-500">✕</button></div>';
-                                        });
-                                        html += '</div></div>';
-                                    }
+                                    html += '<div><p class="text-xs uppercase text-gray-500 mb-2 font-medium mt-3">Add Gifts to Person</p><select id="giftPerson_' + event.id + '" class="w-full p-2 rounded-lg border border-amber-200 text-sm mb-2"><option value="">Select person</option>' + event.people.map(p => '<option value="' + p.name + '">' + p.name + '</option>').join('') + '</select><select id="existingGifts_' + event.id + '" class="w-full p-2 rounded-lg border border-amber-200 text-sm"><option value="">Select existing gift</option>' + this.gifts.filter(g => !eventGifts.find(eg => eg.id === g.id)).map(g => '<option value="' + g.id + '">' + g.giftName + '</option>').join('') + '</select><button onclick="const gId = document.getElementById(\'existingGifts_' + event.id + '\').value; const person = document.getElementById(\'giftPerson_' + event.id + '\').value; if(gId && person) { window.app.addGiftToEvent(' + event.id + ', parseInt(gId)); window.app.updateGift(parseInt(gId), { personName: person }); }" class="w-full py-2 mt-2 text-sm bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg font-medium">Add Existing Gift to Person</button><button onclick="window.app.startNewGiftForEvent(' + event.id + ')" class="w-full py-2 text-sm bg-green-200 hover:bg-green-300 text-green-900 rounded-lg font-medium">+ Create New Gift</button></div>';
 
-                                    html += '<div class="flex gap-2"><button onclick="window.app.toggleEditEvent(' + event.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="window.app.deleteEvent(' + event.id + ')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
+                                    html += '<div class="flex gap-2 mt-3"><button onclick="window.app.toggleEditEvent(' + event.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="document.querySelector(\'[data-event-id=\\"' + event.id + '\\"]\').classList.add(\'swiped\')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
                                 }
                                 html += '</div>';
                             }
+                            html += '</div></div>';
+                            html += '<div class="swipe-delete" onclick="window.app.deleteEvent(' + event.id + ')">Delete</div>';
                             html += '</div>';
                         }
                     });
@@ -651,17 +702,18 @@
                     filteredGifts.forEach(gift => {
                         const isExpanded = this.expandedGift === gift.id;
                         const isEditing = this.editingGift === gift.id;
-                        html += '<div class="bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><button onclick="window.app.expandGift(' + gift.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + gift.giftName + '</h3><p class="text-sm text-gray-600">£' + gift.price.toFixed(2) + ' • ' + gift.status + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
+                        html += '<div class="swipe-item" data-swipe-item data-gift-id="' + gift.id + '"><div class="swipe-item-content bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden"><div class="w-full"><button onclick="window.app.expandGift(' + gift.id + ')" class="w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition"><div class="flex-1"><h3 class="font-semibold text-gray-900">' + gift.giftName + '</h3><p class="text-sm text-gray-600">£' + gift.price.toFixed(2) + ' • ' + gift.status + '</p></div><svg class="w-5 h-5 text-rose-400 transition-transform ' + (isExpanded ? 'rotate-180' : '') + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg></button>';
                         
                         if (isExpanded) {
                             if (isEditing) {
                                 html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><div class="grid grid-cols-2 gap-3"><input type="text" id="edit_person_' + gift.id + '" value="' + (gift.personName || '') + '" class="p-2 rounded border border-rose-100 text-sm" placeholder="Person"><select id="edit_event_' + gift.id + '" class="p-2 rounded border border-rose-100 text-sm"><option value="">No Event</option>' + this.events.map(e => '<option value="' + e.id + '" ' + (gift.eventId === e.id ? 'selected' : '') + '>' + e.name + '</option>').join('') + '</select></div><input type="number" id="edit_price_' + gift.id + '" value="' + gift.price + '" class="w-full p-2 rounded border border-rose-100 text-sm" placeholder="Price"><input type="text" id="edit_url_' + gift.id + '" value="' + gift.url + '" class="w-full p-2 rounded border border-rose-100 text-sm" placeholder="URL"><textarea id="edit_notes_' + gift.id + '" class="w-full p-2 rounded border border-rose-100 text-sm resize-none" rows="2" placeholder="Notes">' + gift.notes + '</textarea><select id="edit_status_' + gift.id + '" class="w-full p-2 rounded border border-rose-100 text-sm"><option value="not purchased" ' + (gift.status === 'not purchased' ? 'selected' : '') + '>Not Purchased</option><option value="purchased" ' + (gift.status === 'purchased' ? 'selected' : '') + '>Purchased</option></select><div class="flex gap-2"><button onclick="window.app.updateGift(' + gift.id + ', { personName: document.getElementById(\'edit_person_' + gift.id + '\').value, eventId: document.getElementById(\'edit_event_' + gift.id + '\').value ? parseInt(document.getElementById(\'edit_event_' + gift.id + '\').value) : null, price: parseFloat(document.getElementById(\'edit_price_' + gift.id + '\').value), url: document.getElementById(\'edit_url_' + gift.id + '\').value, notes: document.getElementById(\'edit_notes_' + gift.id + '\').value, status: document.getElementById(\'edit_status_' + gift.id + '\').value }); window.app.toggleEditGift(' + gift.id + ');" class="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium">Save</button><button onclick="window.app.toggleEditGift(' + gift.id + ')" class="flex-1 py-2 bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg font-medium">Cancel</button></div></div>';
                             } else {
-                                html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><div class="grid grid-cols-2 gap-3"><div class="bg-gray-50 rounded p-2 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Person</p><p class="text-sm font-medium text-gray-900">' + (gift.personName || '—') + '</p></div><div class="bg-gray-50 rounded p-2 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Event</p><p class="text-sm font-medium text-gray-900">' + (gift.eventId ? this.events.find(e => e.id === gift.eventId)?.name || '—' : '—') + '</p></div></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Price</p><p class="text-lg font-bold text-gray-900">£' + gift.price.toFixed(2) + '</p></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">URL</p><p class="text-sm text-gray-900">' + (gift.url ? '<a href="' + gift.url + '" target="_blank" class="text-blue-600 underline">View</a>' : 'No link') + '</p></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Notes</p><p class="text-sm text-gray-900">' + (gift.notes || 'No notes') + '</p></div><div class="flex gap-2"><button onclick="window.app.toggleEditGift(' + gift.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="window.app.deleteGift(' + gift.id + ')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
+                                html += '<div class="border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-3"><div class="grid grid-cols-2 gap-3"><div class="bg-gray-50 rounded p-2 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Person</p><p class="text-sm font-medium text-gray-900">' + (gift.personName || '—') + '</p></div><div class="bg-gray-50 rounded p-2 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Event</p><p class="text-sm font-medium text-gray-900">' + (gift.eventId ? this.events.find(e => e.id === gift.eventId)?.name || '—' : '—') + '</p></div></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Price</p><p class="text-lg font-bold text-gray-900">£' + gift.price.toFixed(2) + '</p></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">URL</p><p class="text-sm text-gray-900">' + (gift.url ? '<a href="' + gift.url + '" target="_blank" class="text-blue-600 underline">View</a>' : 'No link') + '</p></div><div class="bg-gray-50 rounded p-3 border border-gray-200"><p class="text-xs text-gray-500 mb-1">Notes</p><p class="text-sm text-gray-900">' + (gift.notes || 'No notes') + '</p></div><div class="flex gap-2"><button onclick="window.app.toggleEditGift(' + gift.id + ')" class="flex-1 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium">Edit</button><button onclick="document.querySelector(\'[data-gift-id=\\"' + gift.id + '\\"]\').classList.add(\'swiped\')" class="flex-1 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 font-medium">Delete</button></div>';
                             }
                             html += '</div>';
                         }
-
+                        html += '</div></div>';
+                        html += '<div class="swipe-delete" onclick="window.app.deleteGift(' + gift.id + ')">Delete</div>';
                         html += '</div>';
                     });
                     html += '</div>';
@@ -684,6 +736,7 @@
                 const html = '<div class="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50"><div class="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-rose-100"><div class="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between"><div class="flex items-center gap-2"><svg class="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v-1m0 0a3 3 0 100 6 3 3 0 000-6zm0 0V5m0 0a3 3 0 00-3 3v1m3-1a3 3 0 013 3v1"></path></svg><h1 class="text-2xl font-bold text-gray-900">Gift Tracker</h1></div><button onclick="window.app.currentTab === \'events\' ? window.app.toggleAddEvent() : (window.app.currentTab === \'people\' ? window.app.toggleAddPerson() : window.app.toggleAddGift())" class="bg-rose-500 hover:bg-rose-600 text-white rounded-full p-2 transition shadow-md"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg></button></div><div class="max-w-2xl mx-auto px-4 flex gap-2 border-t border-rose-100"><button onclick="window.app.currentTab = \'events\'; window.app.render()" class="py-3 px-4 font-medium text-sm ' + (this.currentTab === 'events' ? 'text-rose-600 border-b-2 border-rose-600' : 'text-gray-600 hover:text-gray-900') + '">Events</button><button onclick="window.app.currentTab = \'people\'; window.app.render()" class="py-3 px-4 font-medium text-sm ' + (this.currentTab === 'people' ? 'text-rose-600 border-b-2 border-rose-600' : 'text-gray-600 hover:text-gray-900') + '">People</button><button onclick="window.app.currentTab = \'gifts\'; window.app.render()" class="py-3 px-4 font-medium text-sm ' + (this.currentTab === 'gifts' ? 'text-rose-600 border-b-2 border-rose-600' : 'text-gray-600 hover:text-gray-900') + '">Gifts</button></div></div><div class="max-w-2xl mx-auto px-4 py-6 pb-20">' + tabContent + '</div></div>';
 
                 document.getElementById('app').innerHTML = html;
+                this.initSwipeHandlers();
             }
         }
 
