@@ -7,12 +7,317 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@heroicons/react@2/dist/index.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+        * { font-family: 'Poppins', sans-serif; }
+    </style>
 </head>
 <body>
     <div id="root"></div>
-    <script type="module">
-        import GiftTracker from './gift_birthday_tracker.jsx';
+    <script>
+        const { useState, useEffect } = React;
+
+        // Icons as simple SVG components
+        const ChevronDown = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+        );
+
+        const Plus = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+        );
+
+        const Gift = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v-1m0 0a3 3 0 100 6 3 3 0 000-6zm0 0V5m0 0a3 3 0 00-3 3v1m3-1a3 3 0 013 3v1" />
+            </svg>
+        );
+
+        const Trash2 = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+        );
+
+        const Check = ({ className }) => (
+            <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+            </svg>
+        );
+
+        function GiftTracker() {
+            const [people, setPeople] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('giftTrackerData');
+                    return saved ? JSON.parse(saved) : [
+                        {
+                            id: 1,
+                            name: 'Sarah',
+                            birthday: '06-15',
+                            budget: 75,
+                            notes: 'Loves coffee and books',
+                            gifts: [
+                                { id: 1, idea: 'Coffee maker', purchased: false, price: 45 },
+                                { id: 2, idea: 'Book series', purchased: true, price: 35 }
+                            ]
+                        }
+                    ];
+                } catch {
+                    return [
+                        {
+                            id: 1,
+                            name: 'Sarah',
+                            birthday: '06-15',
+                            budget: 75,
+                            notes: 'Loves coffee and books',
+                            gifts: [
+                                { id: 1, idea: 'Coffee maker', purchased: false, price: 45 },
+                                { id: 2, idea: 'Book series', purchased: true, price: 35 }
+                            ]
+                        }
+                    ];
+                }
+            });
+
+            const [expandedPerson, setExpandedPerson] = useState(null);
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem('giftTrackerData', JSON.stringify(people));
+                } catch (e) {
+                    console.error('Failed to save data:', e);
+                }
+            }, [people]);
+
+            const addPerson = () => {
+                const newId = Math.max(...people.map(p => p.id), 0) + 1;
+                setPeople([...people, {
+                    id: newId,
+                    name: 'New Person',
+                    birthday: '01-01',
+                    budget: 50,
+                    notes: '',
+                    gifts: []
+                }]);
+                setExpandedPerson(newId);
+            };
+
+            const updatePerson = (id, updates) => {
+                setPeople(people.map(p => p.id === id ? { ...p, ...updates } : p));
+            };
+
+            const deletePerson = (id) => {
+                setPeople(people.filter(p => p.id !== id));
+            };
+
+            const addGift = (personId) => {
+                const person = people.find(p => p.id === personId);
+                if (!person) return;
+                const newGiftId = Math.max(...(person.gifts?.map(g => g.id) || [0]), 0) + 1;
+                updatePerson(personId, {
+                    gifts: [...(person.gifts || []), { id: newGiftId, idea: 'New gift', purchased: false, price: 0 }]
+                });
+            };
+
+            const updateGift = (personId, giftId, updates) => {
+                const person = people.find(p => p.id === personId);
+                updatePerson(personId, {
+                    gifts: person.gifts.map(g => g.id === giftId ? { ...g, ...updates } : g)
+                });
+            };
+
+            const deleteGift = (personId, giftId) => {
+                const person = people.find(p => p.id === personId);
+                updatePerson(personId, {
+                    gifts: person.gifts.filter(g => g.id !== giftId)
+                });
+            };
+
+            const calculateDaysUntil = (dateStr) => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const [month, day] = dateStr.split('-');
+                const nextDate = new Date(today.getFullYear(), parseInt(month) - 1, parseInt(day));
+                if (nextDate < today) {
+                    nextDate.setFullYear(today.getFullYear() + 1);
+                }
+                return Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
+            };
+
+            const formatDate = (dateStr) => {
+                if (!dateStr) return '';
+                const [month, day] = dateStr.split('-');
+                const date = new Date(2024, parseInt(month) - 1, parseInt(day));
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            };
+
+            const PersonCard = ({ person }) => {
+                const spent = person.gifts?.reduce((sum, g) => sum + (g.price || 0), 0) || 0;
+                const daysUntil = calculateDaysUntil(person.birthday);
+                const isExpanded = expandedPerson === person.id;
+
+                return React.createElement(
+                    'div',
+                    { key: person.id, className: 'mb-3 bg-white rounded-2xl shadow-sm border border-rose-100 overflow-hidden' },
+                    React.createElement(
+                        'button',
+                        {
+                            onClick: () => setExpandedPerson(isExpanded ? null : person.id),
+                            className: 'w-full p-4 text-left flex items-center justify-between hover:bg-rose-50/50 transition'
+                        },
+                        React.createElement(
+                            'div',
+                            { className: 'flex-1' },
+                            React.createElement('h3', { className: 'font-semibold text-gray-900 text-lg' }, person.name),
+                            React.createElement('p', { className: 'text-sm text-rose-600 font-medium' }, `${formatDate(person.birthday)} • ${daysUntil} days away`)
+                        ),
+                        React.createElement(ChevronDown, { className: `w-5 h-5 text-rose-400 transition-transform ${isExpanded ? 'rotate-180' : ''}` })
+                    ),
+                    isExpanded && React.createElement(
+                        'div',
+                        { className: 'border-t border-rose-100 p-4 bg-gradient-to-br from-rose-50/50 to-transparent space-y-4' },
+                        React.createElement(
+                            'div',
+                            { className: 'grid grid-cols-2 gap-3 text-sm' },
+                            React.createElement(
+                                'div',
+                                { className: 'bg-white rounded-lg p-3 border border-rose-100' },
+                                React.createElement('p', { className: 'text-gray-500 text-xs uppercase tracking-wide mb-1' }, 'Budget'),
+                                React.createElement('input', {
+                                    type: 'number',
+                                    value: person.budget,
+                                    onChange: (e) => updatePerson(person.id, { budget: parseFloat(e.target.value) || 0 }),
+                                    className: 'w-full text-xl font-bold text-rose-600 bg-transparent border-0 p-0 focus:outline-none'
+                                })
+                            ),
+                            React.createElement(
+                                'div',
+                                { className: 'bg-white rounded-lg p-3 border border-rose-100' },
+                                React.createElement('p', { className: 'text-gray-500 text-xs uppercase tracking-wide mb-1' }, 'Spent'),
+                                React.createElement('p', { className: 'text-xl font-bold text-gray-900' }, `£${spent.toFixed(2)}`)
+                            )
+                        ),
+                        React.createElement(
+                            'div',
+                            null,
+                            React.createElement('label', { className: 'text-xs uppercase text-gray-500 tracking-wide block mb-2' }, 'Notes'),
+                            React.createElement('textarea', {
+                                value: person.notes || '',
+                                onChange: (e) => updatePerson(person.id, { notes: e.target.value }),
+                                placeholder: 'Add reminders, preferences...',
+                                className: 'w-full p-3 rounded-lg border border-rose-100 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-0 resize-none',
+                                rows: '2'
+                            })
+                        ),
+                        React.createElement(
+                            'div',
+                            null,
+                            React.createElement('p', { className: 'text-xs uppercase text-gray-500 tracking-wide mb-3 font-medium' }, 'Gift Ideas'),
+                            React.createElement(
+                                'div',
+                                { className: 'space-y-2' },
+                                person.gifts?.map(gift => React.createElement(
+                                    'div',
+                                    { key: gift.id, className: 'flex items-start gap-3 bg-white rounded-lg p-3 border border-rose-100' },
+                                    React.createElement(
+                                        'button',
+                                        {
+                                            onClick: () => updateGift(person.id, gift.id, { purchased: !gift.purchased }),
+                                            className: `mt-1 w-5 h-5 rounded flex items-center justify-center flex-shrink-0 transition ${gift.purchased ? 'bg-green-500 text-white' : 'border-2 border-gray-300 hover:border-rose-400'}`
+                                        },
+                                        gift.purchased && React.createElement(Check, { className: 'w-3 h-3' })
+                                    ),
+                                    React.createElement(
+                                        'div',
+                                        { className: 'flex-1 min-w-0' },
+                                        React.createElement('input', {
+                                            type: 'text',
+                                            value: gift.idea,
+                                            onChange: (e) => updateGift(person.id, gift.id, { idea: e.target.value }),
+                                            className: 'w-full text-sm font-medium text-gray-900 bg-transparent border-0 p-0 focus:outline-none'
+                                        }),
+                                        React.createElement('input', {
+                                            type: 'number',
+                                            value: gift.price || '',
+                                            onChange: (e) => updateGift(person.id, gift.id, { price: parseFloat(e.target.value) || 0 }),
+                                            placeholder: '£0',
+                                            className: 'text-xs text-gray-500 bg-transparent border-0 p-0 focus:outline-none w-12'
+                                        })
+                                    ),
+                                    React.createElement(
+                                        'button',
+                                        {
+                                            onClick: () => deleteGift(person.id, gift.id),
+                                            className: 'text-gray-400 hover:text-red-500 transition flex-shrink-0'
+                                        },
+                                        React.createElement(Trash2, { className: 'w-4 h-4' })
+                                    )
+                                ))
+                            ),
+                            React.createElement(
+                                'button',
+                                {
+                                    onClick: () => addGift(person.id),
+                                    className: 'mt-3 w-full py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition flex items-center justify-center gap-2'
+                                },
+                                React.createElement(Plus, { className: 'w-4 h-4' }),
+                                ' Add Gift Idea'
+                            )
+                        ),
+                        React.createElement(
+                            'button',
+                            {
+                                onClick: () => deletePerson(person.id),
+                                className: 'w-full py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition flex items-center justify-center gap-2 font-medium'
+                            },
+                            React.createElement(Trash2, { className: 'w-4 h-4' }),
+                            ' Remove Person'
+                        )
+                    )
+                );
+            };
+
+            return React.createElement(
+                'div',
+                { className: 'min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50' },
+                React.createElement(
+                    'div',
+                    { className: 'sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-rose-100' },
+                    React.createElement(
+                        'div',
+                        { className: 'max-w-2xl mx-auto px-4 py-4 flex items-center justify-between' },
+                        React.createElement(
+                            'div',
+                            { className: 'flex items-center gap-2' },
+                            React.createElement(Gift, { className: 'w-6 h-6 text-rose-500' }),
+                            React.createElement('h1', { className: 'text-2xl font-bold text-gray-900' }, 'Gift Tracker')
+                        ),
+                        React.createElement(
+                            'button',
+                            {
+                                onClick: addPerson,
+                                className: 'bg-rose-500 hover:bg-rose-600 text-white rounded-full p-2 transition shadow-md'
+                            },
+                            React.createElement(Plus, { className: 'w-6 h-6' })
+                        )
+                    )
+                ),
+                React.createElement(
+                    'div',
+                    { className: 'max-w-2xl mx-auto px-4 py-6 pb-20' },
+                    people.length === 0 ? React.createElement(
+                        'div',
+                        { className: 'text-center py-12' },
+                        React.createElement(Gift, { className: 'w-16 h-16 text-gray-300 mx-auto mb-4' }),
+                        React.createElement('p', { className: 'text-gray-500' }, 'No people yet. Add someone to get started!')
+                    ) : people.map(person => React.createElement(PersonCard, { key: person.id, person }))
+                )
+            );
+        }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(React.createElement(GiftTracker));
     </script>
