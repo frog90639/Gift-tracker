@@ -177,6 +177,7 @@ class GiftTracker {
         return '<span style="background-color: #D5E8E0; color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Within budget</span>';
     }
     toggleAddGift() { this.addingGift = !this.addingGift; this.newGiftEventId = null; this.newGiftPersonName = null; this.render(); }
+    toggleSettings() { this.showSettings = !this.showSettings; this.render(); }
     addGift(name, person, eid, price, status, category, url, notes) {
         if (!name) return alert('Enter gift name');
         const gid = Math.max(...this.gifts.map(g => g.id), 0) + 1;
