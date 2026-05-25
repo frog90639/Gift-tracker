@@ -345,7 +345,7 @@ class GiftTracker {
         }
     }
     showPasteModal() {
-        const pasteText = prompt('📋 PASTE DATA HERE\n\nInstructions:\n1. Open your Excel file\n2. Select all data (including headers)\n3. Copy (Ctrl+C or Cmd+C)\n4. Paste here\n\nHeaders needed:\nfullname  birthday  giftname  personname  status  price\n\n(Use Tab to separate columns)');
+        const pasteText = prompt('📋 PASTE YOUR DATA\n\nPaste data from Excel with headers.\n\nSupported formats:\n\nPEOPLE:\nfullName, birthday, likes, dislikes, notes\n\nGIFTS:\ngiftName, personName, status, price, eventName, url, notes\n\n(Use Tab to separate columns)\n\nExample:\nfullName\tbirthday\tlikes\ndislikes\nAlannah France\t1990-10-13\tOliver Bonas');
         if (pasteText) {
             this.importFromPaste(pasteText);
         }
