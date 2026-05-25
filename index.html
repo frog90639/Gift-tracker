@@ -262,11 +262,26 @@ class GiftTracker {
         reader.onload = (e) => {
             try {
                 const data = e.target.result;
-                if (file.name.endsWith('.csv')) this.importCSV(data);
-                else if (file.name.endsWith('.xlsx')) this.importXLSX(data);
-                else alert('Error: File must be CSV or XLSX');
+                if (file.name.endsWith('.csv')) {
+                    this.importCSV(data);
+                } else if (file.name.endsWith('.xlsx')) {
+                    if (typeof XLSX === 'undefined') {
+                        alert('Loading XLSX library... Please wait a moment and try again.');
+                        setTimeout(() => {
+                            if (typeof XLSX !== 'undefined') {
+                                this.importXLSX(data);
+                            } else {
+                                alert('XLSX library failed to load.\n\nWorkaround: Convert your file to CSV in Excel:\n1. Open file in Excel\n2. File → Save As\n3. Change format to CSV (Comma delimited)');
+                            }
+                        }, 3000);
+                    } else {
+                        this.importXLSX(data);
+                    }
+                } else {
+                    alert('Error: File must be CSV or XLSX');
+                }
             } catch (err) {
-                alert('Import Error:\n\n' + err.message + '\n\nLine: ' + (err.stack ? err.stack.split('\n')[1] : 'unknown'));
+                alert('Import Error:\n\n' + err.message);
             }
         };
         reader.onerror = () => {
