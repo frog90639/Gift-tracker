@@ -752,23 +752,18 @@ class GiftTracker {
                 const egifts = this.getGiftsForEvent(e.id);
                 const spent = egifts.reduce((s, g) => s + g.price, 0);
                 const budgetStatus = this.getBudgetStatus(e);
-                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + e.name + '</h3><p class="text-sm" style="color: var(--color-text-muted);">Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus + '</p></button>';
+                const person = e.personId ? this.people.find(p => p.id === e.personId) : null;
+                const isMessageOnly = person && person.messageOnly;
+                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + e.name + '</h3><p class="text-sm" style="color: var(--color-text-muted);">' + (isMessageOnly ? '💬 Message Only' : 'Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus) + '</p></button>';
                 if (isExp) {
-                    const person = e.personId ? this.people.find(p => p.id === e.personId) : null;
-                    const isMessageOnly = person && person.messageOnly;
                     html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">';
                     if (!isMessageOnly) {
                         html += '<select id="eg_' + e.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option>Add gift</option>' + this.gifts.filter(g => !egifts.find(eg => eg.id === g.id)).map(g => '<option value="' + g.id + '">' + g.giftName + '</option>').join('') + '</select><button onclick="const gid = document.getElementById(\'eg_' + e.id + '\').value; if(gid) window.app.addGiftToEvent(' + e.id + ', parseInt(gid))" class="w-full py-1 rounded text-sm mb-2" style="background-color: var(--color-secondary); color: var(--color-text);">Add Existing Gift</button>';
                     }
                     if (isMessageOnly) {
-                        html += '<div class="mt-3 border-t pt-3" style="border-color: var(--color-border);"><p class="text-xs font-semibold mb-2" style="color: var(--color-text-muted); text-transform: uppercase;">Message Only Checklist</p>';
-                        if (!e.messages) e.messages = [];
-                        e.messages.forEach(m => {
-                            html += '<div class="flex items-center justify-between p-2 rounded mb-1" style="background-color: var(--color-secondary); border-radius: 4px;"><input type="checkbox" ' + (m.done ? 'checked' : '') + ' onchange="window.app.toggleMessageDone(' + e.id + ', ' + m.id + ')" style="cursor: pointer;"><label style="color: var(--color-text); flex: 1; text-decoration: ' + (m.done ? 'line-through' : 'none') + '; margin-left: 8px; cursor: pointer;">' + m.personName + '</label><button onclick="window.app.deleteMessageFromEvent(' + e.id + ', ' + m.id + ')" style="color: var(--color-error); font-size: 12px; cursor: pointer; background: none; border: none;">✕</button></div>';
-                        });
-                        html += '<input type="text" id="msg_' + e.id + '" placeholder="Person name" class="w-full p-1 rounded border mb-1" style="background-color: var(--color-surface); border-color: var(--color-border); font-size: 11px;"><button onclick="const name = document.getElementById(\'msg_' + e.id + '\').value; if(name) { window.app.addMessageToEvent(' + e.id + ', name); document.getElementById(\'msg_' + e.id + '\').value = \'\'; }" class="w-full py-1 rounded text-sm" style="background-color: var(--color-accent); color: white;">+ Add Person</button></div>';
+                        html += '<div class="flex items-center p-2 rounded mb-2" style="background-color: var(--color-secondary);"><input type="checkbox" id="msg_check_' + e.id + '" ' + (e.messaged ? 'checked' : '') + ' onchange="window.app.updateEvent(' + e.id + ', {messaged: this.checked})" style="cursor: pointer;"><label for="msg_check_' + e.id + '" style="color: var(--color-text); margin-left: 8px; cursor: pointer;"> Messaged</label></div>';
                     }
-                    if (egifts.length > 0) {
+                    if (egifts.length > 0 && !isMessageOnly) {
                         html += '<div class="p-2 rounded border mb-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">ASSIGNED GIFTS</p>';
                         egifts.forEach(g => {
                             html += '<div style="color: var(--color-text); font-size: 12px;">• ' + g.giftName + ' £' + g.price.toFixed(2) + '</div>';
