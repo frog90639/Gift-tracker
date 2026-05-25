@@ -9,18 +9,18 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         :root {
-            --color-bg: #F7F3EA;
-            --color-surface: #FFFCF6;
-            --color-primary: #8FAF9A;
-            --color-primary-text: #23352B;
-            --color-secondary: #DDE8DF;
-            --color-accent: #C97B63;
-            --color-text: #2F2A25;
-            --color-text-muted: #7A7168;
-            --color-border: #E5DCCF;
-            --color-success: #6F9B7A;
-            --color-warning: #D8A85A;
-            --color-error: #B85C50;
+            --color-bg: #FFF8F0;
+            --color-surface: #FFFFFF;
+            --color-primary: #FF6B9D;
+            --color-primary-text: #FFFFFF;
+            --color-secondary: #FFE66D;
+            --color-accent: #00D9FF;
+            --color-text: #2D3436;
+            --color-text-muted: #636E72;
+            --color-border: #DFE6E9;
+            --color-success: #00E676;
+            --color-warning: #FFA500;
+            --color-error: #FF4757;
         }
         * { font-family: 'Poppins', sans-serif; }
         body { background-color: var(--color-bg); }
@@ -286,35 +286,59 @@ class GiftTracker {
             
             let peopleImported = 0;
             let giftsImported = 0;
-            let rowNum = 0;
+            let report = [];
             
             lines.slice(1).forEach((line, idx) => {
-                rowNum = idx + 2;
-                if (!line.trim()) return;
+                const rowNum = idx + 2;
+                if (!line.trim()) {
+                    report.push('⚠️ Row ' + rowNum + ': Empty row - SKIPPED');
+                    return;
+                }
                 
                 try {
                     const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
                     const row = {};
                     headers.forEach((h, i) => { row[h] = values[i]; });
                     
-                    if (row.fullname && row.birthday) {
+                    const fullName = row.fullname;
+                    const birthday = row.birthday;
+                    const giftName = row.giftname;
+                    const personName = row.personname;
+                    
+                    if (fullName && birthday) {
                         this.importPerson(row);
                         peopleImported++;
+                        report.push('✅ Row ' + rowNum + ': Person "' + fullName + '" imported');
+                    } else if (fullName || birthday) {
+                        report.push('⚠️ Row ' + rowNum + ': Missing ' + (!fullName ? 'fullname' : 'birthday') + ' - SKIPPED');
                     }
-                    if (row.giftname && row.personname) {
+                    
+                    if (giftName && personName) {
                         this.importGift(row);
                         giftsImported++;
+                        report.push('✅ Row ' + rowNum + ': Gift "' + giftName + '" for "' + personName + '" imported');
+                    } else if (giftName || personName) {
+                        report.push('⚠️ Row ' + rowNum + ': Missing ' + (!giftName ? 'giftname' : 'personname') + ' - SKIPPED');
                     }
                 } catch (e) {
-                    console.warn('Skipped row ' + rowNum + ': ' + e.message);
+                    report.push('❌ Row ' + rowNum + ': ' + e.message);
                 }
             });
             
             this.saveData();
-            alert('✅ CSV Import Complete\n\nPeople: ' + peopleImported + '\nGifts: ' + giftsImported);
+            
+            let msg = '📊 CSV IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
+            
+            if (msg.length > 2000) {
+                alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nFull report:\n' + report.slice(0, 15).join('\n') + '\n\n(See console for full details)');
+                console.log(msg);
+            } else {
+                alert(msg);
+            }
+            
             this.render();
         } catch (err) {
-            alert('❌ CSV Import Error:\n\n' + err.message + '\n\nMake sure:\n• First row contains headers\n• "fullname" & "birthday" columns for people\n• "giftname" & "personname" columns for gifts');
+            alert('❌ CSV Import Error:\n\n' + err.message + '\n\nMake sure:\n• First row contains headers (lowercase): fullname, birthday, giftname, personname\n• Each row is properly comma-separated');
         }
     }
     importXLSX(data) {
@@ -327,7 +351,7 @@ class GiftTracker {
             
             let peopleImported = 0;
             let giftsImported = 0;
-            let errorLog = [];
+            let report = [];
             
             wb.SheetNames.forEach(sheetName => {
                 try {
@@ -341,34 +365,48 @@ class GiftTracker {
                     }
                     
                     rows.forEach((row, idx) => {
+                        const rowNum = idx + 2;
                         try {
-                            if (row.fullName && row.birthday) {
+                            const fullName = row.fullName || row.fullname;
+                            const birthday = row.birthday || row.Birthday;
+                            const giftName = row.giftName || row.giftname;
+                            const personName = row.personName || row.personname;
+                            
+                            if (fullName && birthday) {
                                 this.importPerson(row);
                                 peopleImported++;
+                                report.push('✅ Row ' + rowNum + ' (' + sheetName + '): Person "' + fullName + '" imported');
+                            } else if (fullName || birthday) {
+                                report.push('⚠️ Row ' + rowNum + ' (' + sheetName + '): Missing ' + (!fullName ? 'fullName' : 'birthday') + ' - SKIPPED');
                             }
-                            if (row.giftName && row.personName) {
+                            
+                            if (giftName && personName) {
                                 this.importGift(row);
                                 giftsImported++;
+                                report.push('✅ Row ' + rowNum + ' (' + sheetName + '): Gift "' + giftName + '" for "' + personName + '" imported');
+                            } else if (giftName || personName) {
+                                report.push('⚠️ Row ' + rowNum + ' (' + sheetName + '): Missing ' + (!giftName ? 'giftName' : 'personName') + ' - SKIPPED');
                             }
                         } catch (e) {
-                            const msg = 'Row ' + (idx + 2) + ' in "' + sheetName + '": ' + e.message;
-                            console.warn(msg);
-                            errorLog.push(msg);
+                            report.push('❌ Row ' + rowNum + ' (' + sheetName + '): ' + e.message);
                         }
                     });
                 } catch (e) {
-                    const msg = 'Sheet "' + sheetName + '": ' + e.message;
-                    console.warn(msg);
-                    errorLog.push(msg);
+                    report.push('❌ Sheet "' + sheetName + '": ' + e.message);
                 }
             });
             
             this.saveData();
-            let msg = '✅ XLSX Import Complete\n\nPeople: ' + peopleImported + '\nGifts: ' + giftsImported + '\n\nSheets: ' + wb.SheetNames.join(', ');
-            if (errorLog.length > 0) {
-                msg += '\n\n⚠️ Skipped ' + errorLog.length + ' rows';
+            
+            let msg = '📊 IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
+            
+            if (msg.length > 2000) {
+                alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nSee full report in console (F12)');
+                console.log(msg);
+            } else {
+                alert(msg);
             }
-            alert(msg);
+            
             this.render();
         } catch (err) {
             alert('❌ XLSX Import Error:\n\n' + err.message + '\n\nTroubleshooting:\n• Check Sheet names exist\n• Check column names: fullName, birthday, giftName, personName\n• Status accepts: Gifted, gifted, purchased, or not purchased\n• Try opening the file in Excel to verify format');
