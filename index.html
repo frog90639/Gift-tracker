@@ -255,41 +255,102 @@ class GiftTracker {
                 const data = e.target.result;
                 if (file.name.endsWith('.csv')) this.importCSV(data);
                 else if (file.name.endsWith('.xlsx')) this.importXLSX(data);
+                else alert('Error: File must be CSV or XLSX');
             } catch (err) {
-                alert('Error: ' + err.message);
+                alert('Import Error:\n\n' + err.message + '\n\nLine: ' + (err.stack ? err.stack.split('\n')[1] : 'unknown'));
             }
+        };
+        reader.onerror = () => {
+            alert('Error reading file. Make sure it\'s a valid CSV or XLSX file.');
         };
         reader.readAsArrayBuffer(file);
     }
     importCSV(data) {
-        const text = new TextDecoder().decode(data);
-        const lines = text.trim().split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        lines.slice(1).forEach(line => {
-            if (!line.trim()) return;
-            const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-            const row = {};
-            headers.forEach((h, i) => { row[h] = values[i]; });
-            if (row.fullname && row.birthday) this.importPerson(row);
-            if (row.giftname && row.personname) this.importGift(row);
-        });
-        this.saveData();
-        alert('Imported successfully!');
-        this.render();
+        try {
+            const text = new TextDecoder().decode(data);
+            const lines = text.trim().split('\n');
+            
+            if (lines.length < 1) throw new Error('CSV file is empty');
+            
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            console.log('CSV Headers found:', headers);
+            
+            let peopleImported = 0;
+            let giftsImported = 0;
+            let rowNum = 0;
+            
+            lines.slice(1).forEach((line, idx) => {
+                rowNum = idx + 2;
+                if (!line.trim()) return;
+                
+                try {
+                    const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+                    const row = {};
+                    headers.forEach((h, i) => { row[h] = values[i]; });
+                    
+                    if (row.fullname && row.birthday) {
+                        this.importPerson(row);
+                        peopleImported++;
+                    }
+                    if (row.giftname && row.personname) {
+                        this.importGift(row);
+                        giftsImported++;
+                    }
+                } catch (e) {
+                    console.warn('Skipped row ' + rowNum + ': ' + e.message);
+                }
+            });
+            
+            this.saveData();
+            alert('✅ CSV Import Complete\n\nPeople: ' + peopleImported + '\nGifts: ' + giftsImported);
+            this.render();
+        } catch (err) {
+            alert('❌ CSV Import Error:\n\n' + err.message + '\n\nMake sure:\n• First row contains headers\n• "fullname" & "birthday" columns for people\n• "giftname" & "personname" columns for gifts');
+        }
     }
     importXLSX(data) {
-        const wb = XLSX.read(data, {type: 'array'});
-        wb.SheetNames.forEach(sheetName => {
-            const ws = wb.Sheets[sheetName];
-            const rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
-            rows.forEach(row => {
-                if (row.fullName && row.birthday) this.importPerson(row);
-                if (row.giftName && row.personName) this.importGift(row);
+        try {
+            if (typeof XLSX === 'undefined') throw new Error('XLSX library failed to load');
+            
+            const wb = XLSX.read(data, {type: 'array'});
+            
+            if (!wb.SheetNames || wb.SheetNames.length === 0) throw new Error('No sheets found in workbook');
+            
+            let peopleImported = 0;
+            let giftsImported = 0;
+            
+            wb.SheetNames.forEach(sheetName => {
+                try {
+                    const ws = wb.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
+                    
+                    console.log('Sheet "' + sheetName + '" has ' + rows.length + ' rows');
+                    
+                    rows.forEach((row, idx) => {
+                        try {
+                            if (row.fullName && row.birthday) {
+                                this.importPerson(row);
+                                peopleImported++;
+                            }
+                            if (row.giftName && row.personName) {
+                                this.importGift(row);
+                                giftsImported++;
+                            }
+                        } catch (e) {
+                            console.warn('Skipped row ' + (idx + 2) + ' in sheet "' + sheetName + '": ' + e.message);
+                        }
+                    });
+                } catch (e) {
+                    console.warn('Sheet "' + sheetName + '" error: ' + e.message);
+                }
             });
-        });
-        this.saveData();
-        alert('Imported successfully!');
-        this.render();
+            
+            this.saveData();
+            alert('✅ XLSX Import Complete\n\nPeople: ' + peopleImported + '\nGifts: ' + giftsImported + '\n\nSheets processed: ' + wb.SheetNames.join(', '));
+            this.render();
+        } catch (err) {
+            alert('❌ XLSX Import Error:\n\n' + err.message + '\n\nMake sure:\n• File is valid Excel/XLSX\n• Sheet names: People, Gifts, etc.\n• Column names: fullName, birthday, giftName, personName');
+        }
     }
     importPerson(row) {
         const name = row.fullName || row.fullname;
