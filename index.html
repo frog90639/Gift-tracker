@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gift Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         :root {
@@ -265,18 +265,7 @@ class GiftTracker {
                 if (file.name.endsWith('.csv')) {
                     this.importCSV(data);
                 } else if (file.name.endsWith('.xlsx')) {
-                    if (typeof XLSX === 'undefined') {
-                        alert('Loading XLSX library... Please wait a moment and try again.');
-                        setTimeout(() => {
-                            if (typeof XLSX !== 'undefined') {
-                                this.importXLSX(data);
-                            } else {
-                                alert('XLSX library failed to load.\n\nWorkaround: Convert your file to CSV in Excel:\n1. Open file in Excel\n2. File → Save As\n3. Change format to CSV (Comma delimited)');
-                            }
-                        }, 3000);
-                    } else {
-                        this.importXLSX(data);
-                    }
+                    this.waitForXLSX(data, file.name, 0);
                 } else {
                     alert('Error: File must be CSV or XLSX');
                 }
@@ -288,6 +277,19 @@ class GiftTracker {
             alert('Error reading file. Make sure it\'s a valid CSV or XLSX file.');
         };
         reader.readAsArrayBuffer(file);
+    }
+    waitForXLSX(data, filename, attempts) {
+        if (attempts > 30) {
+            alert('XLSX library still loading (waited 15 seconds).\n\nThe library might be blocked on your network.\n\nPlease try:\n1. Refresh the page\n2. Wait 30 seconds\n3. Try importing again\n\nOr create the data manually in the app.');
+            return;
+        }
+        if (typeof XLSX !== 'undefined') {
+            console.log('XLSX library loaded, importing...');
+            this.importXLSX(data);
+        } else {
+            console.log('Waiting for XLSX library... attempt ' + (attempts + 1) + '/30');
+            setTimeout(() => this.waitForXLSX(data, filename, attempts + 1), 500);
+        }
     }
     importCSV(data) {
         try {
