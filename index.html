@@ -261,15 +261,34 @@ class GiftTracker {
             
             if (lines.length < 1) throw new Error('No data pasted');
             
-            const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
-            console.log('Pasted headers:', headers);
+            let headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+            let startRow = 0;
+            
+            const knownHeaders = ['fullname', 'birthday', 'likes', 'dislikes', 'notes', 'giftname', 'personname', 'status', 'price', 'id', 'url', 'eventname'];
+            const isHeaderRow = headers.some(h => knownHeaders.includes(h));
+            
+            console.log('First row headers:', headers);
+            console.log('Is header row?', isHeaderRow);
+            
+            if (!isHeaderRow) {
+                console.log('First row appears to be data, not headers. Auto-detecting...');
+                if (lines[0].includes('1990') || lines[0].includes('2000') || lines[0].includes('-')) {
+                    headers = ['id', 'fullname', 'birthday', 'likes', 'dislikes', 'notes'];
+                    startRow = 0;
+                }
+            } else {
+                startRow = 1;
+            }
+            
+            console.log('Using headers:', headers);
+            console.log('Starting data from row:', startRow);
             
             let peopleImported = 0;
             let giftsImported = 0;
             let report = [];
             
-            lines.slice(1).forEach((line, idx) => {
-                const rowNum = idx + 2;
+            lines.slice(startRow).forEach((line, idx) => {
+                const rowNum = startRow + idx + 1;
                 if (!line.trim()) {
                     report.push('⚠️ Row ' + rowNum + ': Empty row - SKIPPED');
                     return;
@@ -278,7 +297,11 @@ class GiftTracker {
                 try {
                     const values = line.split('\t').map(v => v.trim());
                     const row = {};
-                    headers.forEach((h, i) => { row[h] = values[i]; });
+                    headers.forEach((h, i) => { 
+                        row[h] = values[i];
+                    });
+                    
+                    console.log('Row ' + rowNum + ' parsed:', row);
                     
                     const fullName = row.fullname;
                     let birthday = row.birthday;
@@ -315,8 +338,8 @@ class GiftTracker {
                         report.push('⚠️ Row ' + rowNum + ': Missing fullname - SKIPPED');
                     }
                     
-                    const giftName = row.giftname || row['gift name'];
-                    const personName = row.personname || row['person name'];
+                    const giftName = row.giftname;
+                    const personName = row.personname;
                     
                     if (giftName && personName) {
                         this.importGift({giftName, personName, status: row.status || 'not purchased', price: row.price || 0});
@@ -341,7 +364,7 @@ class GiftTracker {
             
             this.render();
         } catch (err) {
-            alert('❌ Paste Import Error:\n\n' + err.message + '\n\nMake sure:\n• Data is tab-separated\n• First row has headers: fullname, birthday (optional), likes, dislikes, notes\n• Birthday format: YYYY-MM-DD (or leave blank)\n• Paste exact content from Excel');
+            alert('❌ Paste Import Error:\n\n' + err.message + '\n\nMake sure:\n• Data is tab-separated (columns separated by tabs)\n• Can include or exclude header row\n• Birthday format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD\n• Paste exact content from Excel');
         }
     }
     showPasteModal() {
