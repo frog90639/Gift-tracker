@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gift Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/xlsx@latest/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         :root {
@@ -254,7 +254,101 @@ class GiftTracker {
         link.download = 'gift-tracker-' + new Date().toISOString().split('T')[0] + '.csv';
         link.click();
     }
-    toggleSettings() { this.showSettings = !this.showSettings; this.render(); }
+    importFromPaste(pasteText) {
+        try {
+            const lines = pasteText.trim().split('\n');
+            
+            if (lines.length < 1) throw new Error('No data pasted');
+            
+            const headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
+            console.log('Pasted headers:', headers);
+            
+            let peopleImported = 0;
+            let giftsImported = 0;
+            let report = [];
+            
+            lines.slice(1).forEach((line, idx) => {
+                const rowNum = idx + 2;
+                if (!line.trim()) {
+                    report.push('⚠️ Row ' + rowNum + ': Empty row - SKIPPED');
+                    return;
+                }
+                
+                try {
+                    const values = line.split('\t').map(v => v.trim());
+                    const row = {};
+                    headers.forEach((h, i) => { row[h] = values[i]; });
+                    
+                    const fullName = row.fullname;
+                    let birthday = row.birthday;
+                    const likes = row.likes;
+                    const dislikes = row.dislikes;
+                    const notes = row.notes;
+                    
+                    if (fullName) {
+                        let year = new Date().getFullYear();
+                        let bdayStr = '01-01';
+                        
+                        if (birthday && birthday.trim()) {
+                            if (birthday.includes('-') && birthday.includes(' ')) {
+                                const parts = birthday.split(' ')[0].split('-');
+                                if (parts.length === 3) {
+                                    year = parseInt(parts[0]);
+                                    bdayStr = String(parseInt(parts[2])).padStart(2, '0') + '-' + String(parseInt(parts[1])).padStart(2, '0');
+                                }
+                            } else if (birthday.includes('-')) {
+                                const parts = birthday.split('-');
+                                if (parts.length === 3) {
+                                    year = parseInt(parts[0]);
+                                    bdayStr = String(parseInt(parts[2])).padStart(2, '0') + '-' + String(parseInt(parts[1])).padStart(2, '0');
+                                }
+                            }
+                            report.push('✅ Row ' + rowNum + ': Person "' + fullName + '" (DOB: ' + bdayStr + ') imported');
+                        } else {
+                            report.push('✅ Row ' + rowNum + ': Person "' + fullName + '" (no birthday) imported');
+                        }
+                        
+                        this.importPerson({fullName, birthday: bdayStr, birthYear: year, likes, dislikes, notes});
+                        peopleImported++;
+                    } else {
+                        report.push('⚠️ Row ' + rowNum + ': Missing fullname - SKIPPED');
+                    }
+                    
+                    const giftName = row.giftname || row['gift name'];
+                    const personName = row.personname || row['person name'];
+                    
+                    if (giftName && personName) {
+                        this.importGift({giftName, personName, status: row.status || 'not purchased', price: row.price || 0});
+                        giftsImported++;
+                        report.push('✅ Row ' + rowNum + ': Gift "' + giftName + '" for "' + personName + '" imported');
+                    }
+                } catch (e) {
+                    report.push('❌ Row ' + rowNum + ': ' + e.message);
+                }
+            });
+            
+            this.saveData();
+            
+            let msg = '📊 PASTE IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
+            
+            if (msg.length > 2000) {
+                alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nFirst 15 rows:\n' + report.slice(0, 15).join('\n'));
+                console.log(msg);
+            } else {
+                alert(msg);
+            }
+            
+            this.render();
+        } catch (err) {
+            alert('❌ Paste Import Error:\n\n' + err.message + '\n\nMake sure:\n• Data is tab-separated\n• First row has headers: fullname, birthday (optional), likes, dislikes, notes\n• Birthday format: YYYY-MM-DD (or leave blank)\n• Paste exact content from Excel');
+        }
+    }
+    showPasteModal() {
+        const pasteText = prompt('📋 PASTE DATA HERE\n\nInstructions:\n1. Open your Excel file\n2. Select all data (including headers)\n3. Copy (Ctrl+C or Cmd+C)\n4. Paste here\n\nHeaders needed:\nfullname  birthday  giftname  personname  status  price\n\n(Use Tab to separate columns)');
+        if (pasteText) {
+            this.importFromPaste(pasteText);
+        }
+    }
 
     importData(file) {
         if (!file) return;
@@ -280,14 +374,15 @@ class GiftTracker {
     }
     waitForXLSX(data, filename, attempts) {
         if (attempts > 30) {
-            alert('XLSX library still loading (waited 15 seconds).\n\nThe library might be blocked on your network.\n\nPlease try:\n1. Refresh the page\n2. Wait 30 seconds\n3. Try importing again\n\nOr create the data manually in the app.');
+            alert('⚠️ XLSX library failed to load after 15 seconds.\n\nThis is a technical issue with the library loading from the internet.\n\n✅ WORKAROUND: Use CSV import instead\n\nTo convert XLSX to CSV:\n1. Email yourself the file\n2. Open in Google Sheets (sheets.google.com)\n3. File → Download → CSV\n4. Import the CSV here\n\nOr manually add your data in the app.');
+            console.error('XLSX library failed to load. Available libraries:', Object.keys(window).filter(k => k.includes('XLSX') || k.includes('xlsx')));
             return;
         }
-        if (typeof XLSX !== 'undefined') {
-            console.log('XLSX library loaded, importing...');
+        if (typeof XLSX !== 'undefined' && XLSX.read) {
+            console.log('✅ XLSX library ready, importing...');
             this.importXLSX(data);
         } else {
-            console.log('Waiting for XLSX library... attempt ' + (attempts + 1) + '/30');
+            console.log('⏳ Waiting for XLSX library... attempt ' + (attempts + 1) + '/30, XLSX type: ' + typeof XLSX);
             setTimeout(() => this.waitForXLSX(data, filename, attempts + 1), 500);
         }
     }
@@ -660,7 +755,7 @@ class GiftTracker {
         else if (this.currentTab === 'gifts') content = this.renderGiftsTab();
         else if (this.currentTab === 'reporting') content = this.renderReportingTab();
 
-        const html = '<div style="background-color: var(--color-bg); min-height: 100vh;"><div class="sticky top-0 z-50" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border);"><div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><div class="flex items-center gap-2"><h1 class="text-2xl font-bold" style="color: var(--color-text);">Gift Tracker</h1></div><div class="flex gap-2"><button onclick="window.app.toggleSettings()" class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-secondary); color: var(--color-text);">⚙️</button><button onclick="' + (this.currentTab === 'events' ? 'window.app.toggleAddEvent()' : (this.currentTab === 'people' ? 'window.app.toggleAddPerson()' : (this.currentTab === 'gifts' ? 'window.app.toggleAddGift()' : null))) + '" class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div></div>' + (this.showSettings ? '<div class="max-w-4xl mx-auto px-4 py-4 border-t" style="border-color: var(--color-border); background-color: var(--color-surface);"><h3 class="font-semibold mb-4" style="color: var(--color-text);">Settings</h3><div class="space-y-3"><label class="w-full py-3 px-4 rounded-lg border text-left cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); display: block;"><input type="file" accept=".csv,.xlsx" onchange="window.app.importData(this.files[0])" style="display: none;">📤 Import Data<p class="text-xs mt-1" style="color: var(--color-text-muted);">Upload CSV or XLSX file</p></label><button onclick="const y = prompt(\'Enter year:\'); if(y) window.app.createAllEventsForYear(y)" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">📅 Auto-Generate Events<p class="text-xs mt-1" style="color: var(--color-text-muted);">Create all birthday and Christmas events for a year</p></button><button onclick="window.app.exportToCSV()" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">📥 Export Data as CSV<p class="text-xs mt-1" style="color: var(--color-text-muted);">Download all your data</p></button></div><button onclick="window.app.toggleSettings()" class="w-full mt-3 py-2 rounded-lg" style="background-color: var(--color-secondary); color: var(--color-text);">Close Settings</button></div>' : '') + '<div class="max-w-4xl mx-auto px-4 flex gap-2 border-t overflow-x-auto" style="border-color: var(--color-border);"><button onclick="window.app.currentTab = \'events\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'transparent') + ';">Events</button><button onclick="window.app.currentTab = \'people\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'transparent') + ';">People</button><button onclick="window.app.currentTab = \'gifts\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'transparent') + ';">Gifts</button><button onclick="window.app.currentTab = \'reporting\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'transparent') + ';">Reporting</button></div></div><div class="max-w-4xl mx-auto px-4 py-6 pb-20">' + content + '</div></div>';
+        const html = '<div style="background-color: var(--color-bg); min-height: 100vh;"><div class="sticky top-0 z-50" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border);"><div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><div class="flex items-center gap-2"><h1 class="text-2xl font-bold" style="color: var(--color-text);">Gift Tracker</h1></div><div class="flex gap-2"><button onclick="window.app.toggleSettings()" class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-secondary); color: var(--color-text);">⚙️</button><button onclick="' + (this.currentTab === 'events' ? 'window.app.toggleAddEvent()' : (this.currentTab === 'people' ? 'window.app.toggleAddPerson()' : (this.currentTab === 'gifts' ? 'window.app.toggleAddGift()' : null))) + '" class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div></div>' + (this.showSettings ? '<div class="max-w-4xl mx-auto px-4 py-4 border-t" style="border-color: var(--color-border); background-color: var(--color-surface);"><h3 class="font-semibold mb-4" style="color: var(--color-text);">Settings</h3><div class="space-y-3"><label class="w-full py-3 px-4 rounded-lg border text-left cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); display: block;"><input type="file" accept=".csv,.xlsx" onchange="window.app.importData(this.files[0])" style="display: none;">📤 Import Data<p class="text-xs mt-1" style="color: var(--color-text-muted);">Upload CSV or XLSX file</p></label><button onclick="window.app.showPasteModal()" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">📋 Paste Data<p class="text-xs mt-1" style="color: var(--color-text-muted);">Copy from Excel and paste here</p></button><button onclick="const y = prompt(\'Enter year:\'); if(y) window.app.createAllEventsForYear(y)" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">📅 Auto-Generate Events<p class="text-xs mt-1" style="color: var(--color-text-muted);">Create all birthday and Christmas events for a year</p></button><button onclick="window.app.exportToCSV()" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">📥 Export Data as CSV<p class="text-xs mt-1" style="color: var(--color-text-muted);">Download all your data</p></button></div><button onclick="window.app.toggleSettings()" class="w-full mt-3 py-2 rounded-lg" style="background-color: var(--color-secondary); color: var(--color-text);">Close Settings</button></div>' : '') + '<div class="max-w-4xl mx-auto px-4 flex gap-2 border-t overflow-x-auto" style="border-color: var(--color-border);"><button onclick="window.app.currentTab = \'events\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'transparent') + ';">Events</button><button onclick="window.app.currentTab = \'people\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'transparent') + ';">People</button><button onclick="window.app.currentTab = \'gifts\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'transparent') + ';">Gifts</button><button onclick="window.app.currentTab = \'reporting\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'transparent') + ';">Reporting</button></div></div><div class="max-w-4xl mx-auto px-4 py-6 pb-20">' + content + '</div></div>';
 
         document.getElementById('app').innerHTML = html;
         this.initSwipeHandlers();
