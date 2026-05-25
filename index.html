@@ -69,11 +69,22 @@ class GiftTracker {
         setTimeout(() => {
             document.querySelectorAll('[data-swipe-item]').forEach(el => {
                 let touchStartX = 0, touchEndX = 0;
-                el.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; });
+                el.addEventListener('touchstart', (e) => { 
+                    touchStartX = e.changedTouches[0].screenX; 
+                });
                 el.addEventListener('touchend', (e) => {
                     touchEndX = e.changedTouches[0].screenX;
-                    if (touchStartX - touchEndX > 50) el.classList.add('swiped');
-                    else if (touchEndX - touchStartX > 50) el.classList.remove('swiped');
+                    const swipeDistance = Math.abs(touchStartX - touchEndX);
+                    if (swipeDistance > 50) {
+                        // Check if this is a nested item (person in event)
+                        const isNested = el.parentElement && el.parentElement.closest('[data-swipe-item]');
+                        if (isNested) {
+                            // Stop propagation for nested items
+                            e.stopPropagation();
+                        }
+                        if (touchStartX - touchEndX > 50) el.classList.add('swiped');
+                        else if (touchEndX - touchStartX > 50) el.classList.remove('swiped');
+                    }
                 });
             });
         }, 100);
@@ -202,6 +213,12 @@ class GiftTracker {
         const e = this.events.find(x => x.id === eid); 
         const g = this.gifts.find(x => x.id === gid); 
         if (e && g) { 
+            // Ensure the person is in the event's people list
+            if (!e.people) e.people = [];
+            if (!e.people.find(p => p.name === personName)) {
+                e.people.push({name: personName, budget: 0});
+            }
+            
             if (!e.giftAssignments) e.giftAssignments = [];
             if (!e.giftAssignments.find(ga => ga.giftId === gid && ga.personName === personName)) { 
                 e.giftAssignments.push({giftId: gid, personName: personName});
@@ -892,7 +909,7 @@ class GiftTracker {
                                     (!e.giftAssignments || !e.giftAssignments.find(ga => ga.personName === p.name && ga.giftId === g.id))
                                 );
                                 
-                                html += '<div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--color-border);"><div style="flex: 1; min-width: 0;"><p style="color: var(--color-text); font-size: 14px; margin: 0; font-weight: 500;">' + p.name + '</p><p style="color: var(--color-text-muted); font-size: 12px; margin: 2px 0 0 0; word-break: break-word;">' + giftDisplay + '</p></div><button onclick="const dropdown = document.getElementById(\'gift_dropdown_' + e.id + '_' + idx + '\'); if(dropdown) { dropdown.style.display = dropdown.style.display === \'none\' ? \'block\' : \'none\'; }" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; margin-left: 8px; flex-shrink: 0;">+</button></div>';
+                                html += '<div class="mb-2 swipe-item" data-swipe-item style="position: relative;"><div class="swipe-item-content" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--color-border);"><div style="flex: 1; min-width: 0;"><p style="color: var(--color-text); font-size: 14px; margin: 0; font-weight: 500;">' + p.name + '</p><p style="color: var(--color-text-muted); font-size: 12px; margin: 2px 0 0 0; word-break: break-word;">' + giftDisplay + '</p></div><button onclick="const dropdown = document.getElementById(\'gift_dropdown_' + e.id + '_' + idx + '\'); if(dropdown) { dropdown.style.display = dropdown.style.display === \'none\' ? \'block\' : \'none\'; }" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; margin-left: 8px; flex-shrink: 0;">+</button></div><div class="swipe-delete" onclick="window.app.removePersonFromEvent(' + e.id + ', \'' + (p.name.replace(/'/g, "\\'")) + '\')">Delete</div></div>';
                                 
                                 // Hidden dropdown for selecting gift - always show it so + button works
                                 if (availableGifts.length > 0) {
