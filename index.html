@@ -58,10 +58,13 @@ class GiftTracker {
         this.showEventReady = 'all';
         this.showSettings = false;
         this.searchText = '';
+        this.hideCompletedRecipients = false;
         this.render();
     }
+    
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
     saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts})); } catch(e) {} }
+    
     initSwipeHandlers() {
         setTimeout(() => {
             document.querySelectorAll('[data-swipe-item]').forEach(el => {
@@ -75,24 +78,30 @@ class GiftTracker {
             });
         }, 100);
     }
+    
     setSearchText(text) { this.searchText = text.toLowerCase(); this.render(); }
     filterPeopleBySearch(people) { if (!this.searchText) return people; return people.filter(p => p.fullName.toLowerCase().includes(this.searchText) || p.likes.toLowerCase().includes(this.searchText) || p.dislikes.toLowerCase().includes(this.searchText)); }
     filterGiftsBySearch(gifts) { if (!this.searchText) return gifts; return gifts.filter(g => g.giftName.toLowerCase().includes(this.searchText) || g.personName.toLowerCase().includes(this.searchText)); }
+    
     toggleAddPerson() { this.addingPerson = !this.addingPerson; this.render(); }
+    
     addPerson(name, bday, year, likes, dislikes, notes, messageOnly, fyiOnly) {
         if (!name || !bday || !year) return alert('Need name, birthday (DD-MM), year');
         this.people.push({ id: Math.max(...this.people.map(p => p.id), 0) + 1, fullName: name, birthday: bday, birthYear: parseInt(year), likes: likes || '', dislikes: dislikes || '', notes: notes || '', giftHistory: [], includeInChristmas: false, messageOnly: messageOnly || false, fyiOnly: fyiOnly || false });
         this.addingPerson = false; this.saveData(); this.render();
     }
+    
     deletePerson(id) { this.people = this.people.filter(p => p.id !== id); this.saveData(); this.render(); }
     updatePerson(id, updates) { const p = this.people.find(x => x.id === id); if (p) Object.assign(p, updates); this.saveData(); this.render(); }
     expandPerson(id) { this.expandedPerson = this.expandedPerson === id ? null : id; this.editingPerson = null; this.render(); }
     toggleEditPerson(id) { this.editingPerson = this.editingPerson === id ? null : id; this.render(); }
+    
     formatDate(ddmm, year) {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const [day, month] = ddmm.split('-');
         return day + ' ' + months[parseInt(month) - 1] + ' ' + year;
     }
+    
     getDaysUntil(person) {
         const today = new Date();
         const [day, month] = person.birthday.split('-');
@@ -110,6 +119,7 @@ class GiftTracker {
             return daysLeft;
         }
     }
+    
     getNextEvent(person) {
         const today = new Date();
         const [day, month] = person.birthday.split('-');
@@ -127,33 +137,75 @@ class GiftTracker {
             return '25 Dec (Christmas)';
         }
     }
+    
     toggleAddEvent() { this.addingEvent = !this.addingEvent; this.eventType = null; this.render(); }
     selectEventType(type) { this.eventType = type; this.render(); }
+    
     addCustomEvent(name, date, budget, person) {
         if (!name || !date) return alert('Event name and date required');
         const parts = date.split('-');
         if (parts.length !== 3) return alert('Date must be DD-MM-YYYY');
         const pid = person ? parseInt(person) : null;
         const pname = pid ? (this.people.find(p => p.id === pid)?.fullName || '') : '';
-        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'custom', name: name, date: parts[0] + '-' + parts[1] + '-' + parts[2], budget: parseFloat(budget) || 0, notes: '', personId: pid, personName: pname, year: parseInt(parts[2]), people: pid ? [{name: pname, budget: 0}] : [], giftIds: [] });
+        this.events.push({ 
+            id: Math.max(...this.events.map(e => e.id), 0) + 1, 
+            type: 'custom', 
+            name: name, 
+            date: parts[0] + '-' + parts[1] + '-' + parts[2], 
+            budget: parseFloat(budget) || 0, 
+            notes: '', 
+            personId: pid, 
+            personName: pname, 
+            year: parseInt(parts[2]), 
+            people: pid ? [{id: pid, name: pname, budget: 0, recipient_status: 'no_gift'}] : [], 
+            giftIds: [] 
+        });
         this.addingEvent = false; this.eventType = null; this.saveData(); this.render();
     }
+    
     getYearDropdown() { const y = new Date().getFullYear(); let s = ''; for (let i = y - 7; i <= y + 5; i++) s += '<option value="' + i + '">' + i + '</option>'; return s; }
+    
     addBirthdayEvent(pid, year) {
         if (!pid || !year) return alert('Select person and year');
         const p = this.people.find(x => x.id === parseInt(pid));
         if (!p) return;
         const age = parseInt(year) - p.birthYear;
         const parts = p.birthday.split('-');
-        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'birthday', name: p.fullName + ': ' + age, date: parts[0] + '-' + parts[1] + '-' + year, budget: 0, notes: '', personId: p.id, personName: p.fullName, year: parseInt(year), people: [{name: p.fullName, budget: 0}], giftIds: [], messages: p.messageOnly ? [] : undefined });
+        this.events.push({ 
+            id: Math.max(...this.events.map(e => e.id), 0) + 1, 
+            type: 'birthday', 
+            name: p.fullName + ': ' + age, 
+            date: parts[0] + '-' + parts[1] + '-' + year, 
+            budget: 0, 
+            notes: '', 
+            personId: p.id, 
+            personName: p.fullName, 
+            year: parseInt(year), 
+            people: [{id: p.id, name: p.fullName, budget: 0, recipient_status: 'no_gift'}], 
+            giftIds: [], 
+            messages: p.messageOnly ? [] : undefined 
+        });
         this.addingEvent = false; this.eventType = null; this.saveData(); this.render();
     }
+    
     addChristmasEvent(year, budget) {
         if (!year) return alert('Select year');
-        const cp = this.people.filter(p => p.includeInChristmas).map(p => ({name: p.fullName, budget: 0}));
-        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'christmas', name: 'Christmas ' + year, date: '25-12-' + year, budget: parseFloat(budget) || 0, notes: '', year: parseInt(year), people: cp, giftIds: [] });
+        const cp = this.people.filter(p => p.includeInChristmas).map(p => ({id: p.id, name: p.fullName, budget: 0, recipient_status: 'no_gift'}));
+        this.events.push({ 
+            id: Math.max(...this.events.map(e => e.id), 0) + 1, 
+            type: 'christmas', 
+            name: 'Christmas ' + year, 
+            date: '25-12-' + year, 
+            budget: parseFloat(budget) || 0, 
+            notes: '', 
+            year: parseInt(year), 
+            people: cp, 
+            giftIds: [], 
+            useIndividualBudgets: false 
+        });
         this.addingEvent = false; this.eventType = null; this.saveData(); this.render();
     }
+    
     createAllEventsForYear(year) {
         if (!year) return alert('Select year');
         year = parseInt(year);
@@ -172,13 +224,81 @@ class GiftTracker {
         alert('Created ' + created + ' event(s)');
         this.render();
     }
+    
     updateEvent(id, updates) { const e = this.events.find(x => x.id === id); if (e) Object.assign(e, updates); this.saveData(); this.render(); }
     deleteEvent(id) { this.events = this.events.filter(e => e.id !== id); this.gifts = this.gifts.filter(g => g.eventId !== id); this.saveData(); this.render(); }
     expandEvent(id) { this.expandedEvent = this.expandedEvent === id ? null : id; this.editingEvent = null; this.render(); }
     toggleEditEvent(id) { this.editingEvent = this.editingEvent === id ? null : id; this.render(); }
-    isEventReady(e) { return this.getGiftsForEvent(e.id).some(g => g.status === 'purchased'); }
-    addGiftToEvent(eid, gid) { const e = this.events.find(x => x.id === eid); const g = this.gifts.find(x => x.id === gid); if (e && g) { if (!e.giftIds) e.giftIds = []; if (!e.giftIds.includes(gid)) { e.giftIds.push(gid); g.eventId = eid; this.saveData(); this.render(); } } }
-    removeGiftFromEvent(eid, gid) { const e = this.events.find(x => x.id === eid); if (e) { e.giftIds = e.giftIds.filter(id => id !== gid); this.saveData(); this.render(); } }
+    
+    isEventReady(e) { return this.getGiftsForEvent(e.id).some(g => g.status === 'bought' || g.status === 'wrapped' || g.status === 'given'); }
+    
+    addGiftToEvent(eid, gid, personId) { 
+        const e = this.events.find(x => x.id === eid); 
+        const g = this.gifts.find(x => x.id === gid); 
+        const isGroupEvent = e && (e.type === 'christmas' || (e.type === 'custom' && e.people && e.people.length > 1));
+        
+        // For group events, recipient is required
+        if (isGroupEvent && !personId) {
+            alert('Please select a recipient for this gift');
+            return;
+        }
+        
+        if (e && g) { 
+            if (!e.giftIds) e.giftIds = []; 
+            if (!e.giftIds.includes(gid)) { 
+                e.giftIds.push(gid); 
+                g.eventId = eid;
+                g.recipientId = personId || null;
+                this.saveData(); 
+                this.render(); 
+            } 
+        } 
+    }
+    
+    removeGiftFromEvent(eid, gid) { 
+        const e = this.events.find(x => x.id === eid); 
+        if (e) { 
+            e.giftIds = e.giftIds.filter(id => id !== gid); 
+            this.saveData(); 
+            this.render(); 
+        } 
+    }
+    
+    addPersonToEvent(eid, pid) {
+        const e = this.events.find(x => x.id === eid);
+        const p = this.people.find(x => x.id === pid);
+        if (e && p && !e.people.find(x => x.id === pid)) {
+            e.people.push({id: pid, name: p.fullName, budget: 0, recipient_status: 'no_gift'});
+            this.saveData();
+            this.render();
+        }
+    }
+    
+    removePersonFromEvent(eid, pid) {
+        const e = this.events.find(x => x.id === eid);
+        if (e && e.type !== 'birthday') {
+            e.people = e.people.filter(p => p.id !== pid);
+            this.saveData();
+            this.render();
+        }
+    }
+    
+    updateRecipientStatus(eid, pid, status) {
+        const e = this.events.find(x => x.id === eid);
+        if (e) {
+            const recipient = e.people.find(p => p.id === pid);
+            if (recipient) {
+                recipient.recipient_status = status;
+                this.saveData();
+                this.render();
+            }
+        }
+    }
+    
+    isRecipientComplete(status) {
+        return status === 'given' || status === 'wrapped';
+    }
+    
     addMessageToEvent(eid, personName) {
         if (!personName) return alert('Person name required');
         const e = this.events.find(x => x.id === eid);
@@ -193,6 +313,7 @@ class GiftTracker {
             }
         }
     }
+    
     toggleMessageDone(eid, mid) {
         const e = this.events.find(x => x.id === eid);
         if (e && e.messages) {
@@ -202,6 +323,7 @@ class GiftTracker {
             this.render();
         }
     }
+    
     deleteMessageFromEvent(eid, mid) {
         const e = this.events.find(x => x.id === eid);
         if (e && e.messages) {
@@ -210,6 +332,7 @@ class GiftTracker {
             this.render();
         }
     }
+    
     getBudgetStatus(e) {
         const spent = this.getGiftsForEvent(e.id).reduce((s, g) => s + g.price, 0);
         if (e.budget === 0) return '';
@@ -217,12 +340,27 @@ class GiftTracker {
         if (spent > e.budget) return '<span style="background-color: #FFE5E0; color: var(--color-error); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Over budget</span>';
         return '<span style="background-color: #D5E8E0; color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Within budget</span>';
     }
+    
     toggleAddGift() { this.addingGift = !this.addingGift; this.newGiftEventId = null; this.newGiftPersonName = null; this.render(); }
     toggleSettings() { this.showSettings = !this.showSettings; this.render(); }
+    
     addGift(name, person, eid, price, status, category, url, notes) {
         if (!name) return alert('Enter gift name');
         const gid = Math.max(...this.gifts.map(g => g.id), 0) + 1;
-        this.gifts.push({ id: gid, giftName: name, personName: person || '', eventId: eid ? parseInt(eid) : null, status: status || 'not purchased', price: parseFloat(price) || 0, url: url || '', notes: notes || '', category: category || 'other', photoUrl: '', purchaseYear: new Date().getFullYear() });
+        this.gifts.push({ 
+            id: gid, 
+            giftName: name, 
+            personName: person || '', 
+            eventId: eid ? parseInt(eid) : null, 
+            status: status || 'idea', 
+            price: parseFloat(price) || 0, 
+            url: url || '', 
+            notes: notes || '', 
+            category: category || 'other', 
+            photoUrl: '', 
+            purchaseYear: new Date().getFullYear(),
+            recipientId: null
+        });
         if (person) {
             const p = this.people.find(x => x.fullName === person);
             if (p) {
@@ -232,30 +370,36 @@ class GiftTracker {
         }
         this.addingGift = false; this.newGiftEventId = null; this.newGiftPersonName = null; this.saveData(); this.render();
     }
+    
     updateGift(id, updates) { const g = this.gifts.find(x => x.id === id); if (g) Object.assign(g, updates); this.saveData(); this.render(); }
     deleteGift(id) { this.gifts = this.gifts.filter(g => g.id !== id); this.events.forEach(e => { if (e.giftIds) e.giftIds = e.giftIds.filter(gid => gid !== id); }); this.saveData(); this.render(); }
     expandGift(id) { this.expandedGift = this.expandedGift === id ? null : id; this.editingGift = null; this.render(); }
     toggleEditGift(id) { this.editingGift = this.editingGift === id ? null : id; this.render(); }
+    
     getGiftsForEvent(eid) { return this.gifts.filter(g => g.eventId === eid); }
     getGiftsForPerson(name) { return this.gifts.filter(g => g.personName === name); }
-    getGiftsForEventAndPerson(eid, name) { return this.gifts.filter(g => g.eventId === eid && g.personName === name); }
+    getGiftsForEventAndPerson(eid, pid) { return this.gifts.filter(g => g.eventId === eid && g.recipientId === pid); }
+    
     isEventUpcoming(e) { const p = e.date.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) >= new Date(); }
     getSortedPeople() { return [...this.people].sort((a, b) => a.fullName.localeCompare(b.fullName)); }
     getSortedEvents() { return [...this.events].sort((a, b) => { const [dA, mA, yA] = a.date.split('-'); const [dB, mB, yB] = b.date.split('-'); return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB)); }); }
     getMonthYear(dateStr) { if (!dateStr) return ''; const p = dateStr.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).toLocaleDateString('en-US', {month: 'long', year: 'numeric'}); }
     getTotalSpent() { return this.gifts.reduce((s, g) => s + g.price, 0); }
+    
     getAverageBirthdaySpend() {
         const birthdayEvents = this.events.filter(e => e.type === 'birthday');
         if (birthdayEvents.length === 0) return 0;
         const spent = birthdayEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0);
         return (spent / birthdayEvents.length).toFixed(2);
     }
+    
     getAverageChristmasSpend() {
         const christmasEvents = this.events.filter(e => e.type === 'christmas');
         if (christmasEvents.length === 0) return 0;
         const spent = christmasEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0);
         return (spent / christmasEvents.length).toFixed(2);
     }
+    
     getTopGiftees() {
         const gpp = {};
         this.gifts.forEach(g => {
@@ -267,11 +411,13 @@ class GiftTracker {
         });
         return Object.entries(gpp).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.spent - a.spent).slice(0, 5);
     }
+    
     getPurchasedVsUnpurchased() {
-        const purchased = this.gifts.filter(g => g.status === 'purchased').length;
-        const unpurchased = this.gifts.filter(g => g.status === 'not purchased').length;
+        const purchased = this.gifts.filter(g => g.status === 'bought' || g.status === 'wrapped' || g.status === 'given').length;
+        const unpurchased = this.gifts.filter(g => g.status === 'idea' || g.status === 'planned').length;
         return { purchased, unpurchased, total: purchased + unpurchased };
     }
+    
     exportToCSV() {
         let csv = 'GIFT TRACKER EXPORT\n';
         csv += 'Export Date: ' + new Date().toLocaleString() + '\n\n';
@@ -296,21 +442,17 @@ class GiftTracker {
         link.download = 'gift-tracker-' + new Date().toISOString().split('T')[0] + '.csv';
         link.click();
     }
+    
     importFromPaste(pasteText) {
         try {
             const lines = pasteText.trim().split('\n');
-            
             if (lines.length < 1) throw new Error('No data pasted');
-            
             let headers = lines[0].split('\t').map(h => h.trim().toLowerCase());
             let startRow = 0;
-            
             const knownHeaders = ['fullname', 'birthday', 'likes', 'dislikes', 'notes', 'giftname', 'personname', 'status', 'price', 'id', 'url', 'eventname'];
             const isHeaderRow = headers.some(h => knownHeaders.includes(h));
-            
             console.log('First row headers:', headers);
             console.log('Is header row?', isHeaderRow);
-            
             if (!isHeaderRow) {
                 console.log('First row appears to be data, not headers. Auto-detecting...');
                 if (lines[0].includes('1990') || lines[0].includes('2000') || lines[0].includes('-')) {
@@ -320,40 +462,30 @@ class GiftTracker {
             } else {
                 startRow = 1;
             }
-            
             console.log('Using headers:', headers);
             console.log('Starting data from row:', startRow);
-            
             let peopleImported = 0;
             let giftsImported = 0;
             let report = [];
-            
             lines.slice(startRow).forEach((line, idx) => {
                 const rowNum = startRow + idx + 1;
                 if (!line.trim()) {
                     report.push('⚠️ Row ' + rowNum + ': Empty row - SKIPPED');
                     return;
                 }
-                
                 try {
                     const values = line.split('\t').map(v => v.trim());
                     const row = {};
-                    headers.forEach((h, i) => { 
-                        row[h] = values[i];
-                    });
-                    
+                    headers.forEach((h, i) => { row[h] = values[i]; });
                     console.log('Row ' + rowNum + ' parsed:', row);
-                    
                     const fullName = row.fullname;
                     let birthday = row.birthday;
                     const likes = row.likes;
                     const dislikes = row.dislikes;
                     const notes = row.notes;
-                    
                     if (fullName) {
                         let year = new Date().getFullYear();
                         let bdayStr = '01-01';
-                        
                         if (birthday && birthday.trim()) {
                             if (birthday.includes('-') && birthday.includes(' ')) {
                                 const parts = birthday.split(' ')[0].split('-');
@@ -372,18 +504,15 @@ class GiftTracker {
                         } else {
                             report.push('✅ Row ' + rowNum + ': Person "' + fullName + '" (no birthday) imported');
                         }
-                        
                         this.importPerson({fullName, birthday: bdayStr, birthYear: year, likes, dislikes, notes});
                         peopleImported++;
                     } else {
                         report.push('⚠️ Row ' + rowNum + ': Missing fullname - SKIPPED');
                     }
-                    
                     const giftName = row.giftname;
                     const personName = row.personname;
-                    
                     if (giftName && personName) {
-                        this.importGift({giftName, personName, status: row.status || 'not purchased', price: row.price || 0});
+                        this.importGift({giftName, personName, status: row.status || 'idea', price: row.price || 0});
                         giftsImported++;
                         report.push('✅ Row ' + rowNum + ': Gift "' + giftName + '" for "' + personName + '" imported');
                     }
@@ -391,23 +520,20 @@ class GiftTracker {
                     report.push('❌ Row ' + rowNum + ': ' + e.message);
                 }
             });
-            
             this.saveData();
-            
             let msg = '📊 PASTE IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
-            
             if (msg.length > 2000) {
                 alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nFirst 15 rows:\n' + report.slice(0, 15).join('\n'));
                 console.log(msg);
             } else {
                 alert(msg);
             }
-            
             this.render();
         } catch (err) {
             alert('❌ Paste Import Error:\n\n' + err.message + '\n\nMake sure:\n• Data is tab-separated (columns separated by tabs)\n• Can include or exclude header row\n• Birthday format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD\n• Paste exact content from Excel');
         }
     }
+    
     showPasteModal() {
         const text = prompt('Paste your Excel data here (tab-separated):');
         if (text && text.trim()) {
@@ -437,6 +563,7 @@ class GiftTracker {
         };
         reader.readAsArrayBuffer(file);
     }
+    
     waitForXLSX(data, filename, attempts) {
         if (attempts > 30) {
             alert('⚠️ XLSX library failed to load after 15 seconds.\n\nThis is a technical issue with the library loading from the internet.\n\n✅ WORKAROUND: Use CSV import instead\n\nTo convert XLSX to CSV:\n1. Email yourself the file\n2. Open in Google Sheets (sheets.google.com)\n3. File → Download → CSV\n4. Import the CSV here\n\nOr manually add your data in the app.');
@@ -451,37 +578,31 @@ class GiftTracker {
             setTimeout(() => this.waitForXLSX(data, filename, attempts + 1), 500);
         }
     }
+    
     importCSV(data) {
         try {
             const text = new TextDecoder().decode(data);
             const lines = text.trim().split('\n');
-            
             if (lines.length < 1) throw new Error('CSV file is empty');
-            
             const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
             console.log('CSV Headers found:', headers);
-            
             let peopleImported = 0;
             let giftsImported = 0;
             let report = [];
-            
             lines.slice(1).forEach((line, idx) => {
                 const rowNum = idx + 2;
                 if (!line.trim()) {
                     report.push('⚠️ Row ' + rowNum + ': Empty row - SKIPPED');
                     return;
                 }
-                
                 try {
                     const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
                     const row = {};
                     headers.forEach((h, i) => { row[h] = values[i]; });
-                    
                     const fullName = row.fullname;
                     const birthday = row.birthday;
                     const giftName = row.giftname;
                     const personName = row.personname;
-                    
                     if (fullName && birthday) {
                         this.importPerson(row);
                         peopleImported++;
@@ -489,7 +610,6 @@ class GiftTracker {
                     } else if (fullName || birthday) {
                         report.push('⚠️ Row ' + rowNum + ': Missing ' + (!fullName ? 'fullname' : 'birthday') + ' - SKIPPED');
                     }
-                    
                     if (giftName && personName) {
                         this.importGift(row);
                         giftsImported++;
@@ -501,46 +621,36 @@ class GiftTracker {
                     report.push('❌ Row ' + rowNum + ': ' + e.message);
                 }
             });
-            
             this.saveData();
-            
             let msg = '📊 CSV IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
-            
             if (msg.length > 2000) {
                 alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nFull report:\n' + report.slice(0, 15).join('\n') + '\n\n(See console for full details)');
                 console.log(msg);
             } else {
                 alert(msg);
             }
-            
             this.render();
         } catch (err) {
             alert('❌ CSV Import Error:\n\n' + err.message + '\n\nMake sure:\n• First row contains headers (lowercase): fullname, birthday, giftname, personname\n• Each row is properly comma-separated');
         }
     }
+    
     importXLSX(data) {
         try {
             if (typeof XLSX === 'undefined') throw new Error('XLSX library failed to load');
-            
             const wb = XLSX.read(data, {type: 'array'});
-            
             if (!wb.SheetNames || wb.SheetNames.length === 0) throw new Error('No sheets found in workbook');
-            
             let peopleImported = 0;
             let giftsImported = 0;
             let report = [];
-            
             wb.SheetNames.forEach(sheetName => {
                 try {
                     const ws = wb.Sheets[sheetName];
                     const rows = XLSX.utils.sheet_to_json(ws, {defval: ''});
-                    
                     console.log('Sheet "' + sheetName + '" has ' + rows.length + ' rows');
-                    
                     if (rows.length > 0) {
                         console.log('First row keys:', Object.keys(rows[0]));
                     }
-                    
                     rows.forEach((row, idx) => {
                         const rowNum = idx + 2;
                         try {
@@ -548,7 +658,6 @@ class GiftTracker {
                             const birthday = row.birthday || row.Birthday;
                             const giftName = row.giftName || row.giftname;
                             const personName = row.personName || row.personname;
-                            
                             if (fullName && birthday) {
                                 this.importPerson(row);
                                 peopleImported++;
@@ -556,7 +665,6 @@ class GiftTracker {
                             } else if (fullName || birthday) {
                                 report.push('⚠️ Row ' + rowNum + ' (' + sheetName + '): Missing ' + (!fullName ? 'fullName' : 'birthday') + ' - SKIPPED');
                             }
-                            
                             if (giftName && personName) {
                                 this.importGift(row);
                                 giftsImported++;
@@ -572,23 +680,20 @@ class GiftTracker {
                     report.push('❌ Sheet "' + sheetName + '": ' + e.message);
                 }
             });
-            
             this.saveData();
-            
             let msg = '📊 IMPORT REPORT\n\n✅ Imported: ' + peopleImported + ' people, ' + giftsImported + ' gifts\n\nDETAILS:\n' + report.join('\n');
-            
             if (msg.length > 2000) {
                 alert('Import complete!\n\n✅ People: ' + peopleImported + '\n✅ Gifts: ' + giftsImported + '\n\nSee full report in console (F12)');
                 console.log(msg);
             } else {
                 alert(msg);
             }
-            
             this.render();
         } catch (err) {
-            alert('❌ XLSX Import Error:\n\n' + err.message + '\n\nTroubleshooting:\n• Check Sheet names exist\n• Check column names: fullName, birthday, giftName, personName\n• Status accepts: Gifted, gifted, purchased, or not purchased\n• Try opening the file in Excel to verify format');
+            alert('❌ XLSX Import Error:\n\n' + err.message + '\n\nTroubleshooting:\n• Check Sheet names exist\n• Check column names: fullName, birthday, giftName, personName\n• Status accepts: idea, planned, bought, wrapped, or given\n• Try opening the file in Excel to verify format');
         }
     }
+    
     importPerson(row) {
         const name = row.fullName || row.fullname;
         if (!name || this.people.find(p => p.fullName === name)) return;
@@ -614,6 +719,7 @@ class GiftTracker {
             fyiOnly: false
         });
     }
+    
     importGift(row) {
         const name = row.giftName || row.giftname;
         const person = row.personName || row.personname;
@@ -634,17 +740,17 @@ class GiftTracker {
                     personId: null,
                     personName: person,
                     year: 2026,
-                    people: [{name: person, budget: 0}],
+                    people: [{id: null, name: person, budget: 0, recipient_status: 'no_gift'}],
                     giftIds: []
                 });
             } else {
                 eventId = event.id;
             }
         }
-        let status = (row.status || row.Status || 'not purchased').toLowerCase().trim();
-        if (status === 'gifted' || status === 'yes') status = 'purchased';
-        if (status === 'idea' || status === 'unknown' || status === 'pending') status = 'not purchased';
-        if (status !== 'purchased' && status !== 'not purchased') status = 'not purchased';
+        let status = (row.status || row.Status || 'idea').toLowerCase().trim();
+        if (status === 'gifted' || status === 'yes') status = 'given';
+        if (status === 'pending' || status === 'unknown') status = 'planned';
+        if (!['idea', 'planned', 'bought', 'wrapped', 'given'].includes(status)) status = 'idea';
         
         const giftId = Math.max(...this.gifts.map(g => g.id), 0) + 1;
         this.gifts.push({
@@ -658,7 +764,8 @@ class GiftTracker {
             notes: row.notes || row.Notes || '',
             category: row.category || row.Category || 'other',
             photoUrl: '',
-            purchaseYear: new Date().getFullYear()
+            purchaseYear: new Date().getFullYear(),
+            recipientId: null
         });
         if (eventId) {
             const event = this.events.find(e => e.id === eventId);
@@ -720,11 +827,11 @@ class GiftTracker {
         }
         if (this.addingEvent) {
             if (!this.eventType) {
-                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><button onclick="window.app.selectEventType(\'birthday\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">Birthday</button><button onclick="window.app.selectEventType(\'christmas\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-accent);">Christmas</button><button onclick="window.app.selectEventType(\'custom\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary);">Custom Event</button><button onclick="window.app.toggleAddEvent()" class="w-full py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><button onclick="window.app.selectEventType(\'birthday\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">🎂 Birthday</button><button onclick="window.app.selectEventType(\'christmas\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-accent);">🎄 Christmas</button><button onclick="window.app.selectEventType(\'custom\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary);">✨ Custom Event</button><button onclick="window.app.toggleAddEvent()" class="w-full py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             } else if (this.eventType === 'birthday') {
                 html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><select id="eperson" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option>Select Person</option>' + this.getSortedPeople().map(p => '<option value="' + p.id + '">' + p.fullName + '</option>').join('') + '</select><select id="eyear" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option>Select Year</option>' + this.getYearDropdown() + '</select><button onclick="window.app.addBirthdayEvent(document.getElementById(\'eperson\').value, document.getElementById(\'eyear\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             } else if (this.eventType === 'christmas') {
-                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><select id="cyear" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option>Select Year</option>' + this.getYearDropdown() + '</select><input type="number" id="cbudget" placeholder="Budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><button onclick="window.app.addChristmasEvent(document.getElementById(\'cyear\').value, document.getElementById(\'cbudget\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-accent);">Add</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><select id="cyear" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option>Select Year</option>' + this.getYearDropdown() + '</select><input type="number" id="cbudget" placeholder="Budget (optional)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><button onclick="window.app.addChristmasEvent(document.getElementById(\'cyear\').value, document.getElementById(\'cbudget\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-accent);">Add</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             } else if (this.eventType === 'custom') {
                 html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Create Custom Event</h3><input type="text" id="cename" placeholder="Event name (e.g. Father\'s Day)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="text" id="cedate" placeholder="Date (DD-MM-YYYY)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="number" id="cebudget" placeholder="Budget (optional)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><select id="ceperson" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getSortedPeople().map(p => '<option value="' + p.id + '">' + p.fullName + '</option>').join('') + '</select><button onclick="window.app.addCustomEvent(document.getElementById(\'cename\').value, document.getElementById(\'cedate\').value, document.getElementById(\'cebudget\').value, document.getElementById(\'ceperson\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add Event</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             }
@@ -756,10 +863,47 @@ class GiftTracker {
                 if (isExp) {
                     const person = e.personId ? this.people.find(p => p.id === e.personId) : null;
                     const isMessageOnly = person && person.messageOnly;
+                    const isGroupEvent = e.type === 'christmas' || (e.type === 'custom' && e.people && e.people.length > 1);
+                    
                     html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">';
-                    if (!isMessageOnly) {
-                        html += '<select id="eg_' + e.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option>Add gift</option>' + this.gifts.filter(g => !egifts.find(eg => eg.id === g.id)).map(g => '<option value="' + g.id + '">' + g.giftName + '</option>').join('') + '</select><button onclick="const gid = document.getElementById(\'eg_' + e.id + '\').value; if(gid) window.app.addGiftToEvent(' + e.id + ', parseInt(gid))" class="w-full py-1 rounded text-sm mb-2" style="background-color: var(--color-secondary); color: var(--color-text);">Add Existing Gift</button>';
+                    
+                    // Recipients section for group events
+                    if (isGroupEvent && e.people && e.people.length > 0) {
+                        let recipients = e.people;
+                        if (this.hideCompletedRecipients) {
+                            recipients = recipients.filter(r => !this.isRecipientComplete(r.recipient_status || 'no_gift'));
+                        }
+                        
+                        html += '<div class="mb-3"><p class="text-xs font-semibold mb-2" style="color: var(--color-text-muted); text-transform: uppercase;">Recipients</p>';
+                        html += '<label style="display: flex; align-items: center; margin-bottom: 8px; color: var(--color-text);"><input type="checkbox" ' + (this.hideCompletedRecipients ? 'checked' : '') + ' onchange="window.app.hideCompletedRecipients = !window.app.hideCompletedRecipients; window.app.render()" style="margin-right: 8px;"> Hide completed</label>';
+                        
+                        recipients.forEach(r => {
+                            const statusColor = r.recipient_status === 'given' || r.recipient_status === 'wrapped' ? 'var(--color-success)' : r.recipient_status === 'bought' ? 'var(--color-accent)' : r.recipient_status === 'planned' ? 'var(--color-warning)' : 'var(--color-secondary)';
+                            html += '<div class="p-2 rounded mb-1 flex items-center justify-between" style="background-color: ' + statusColor + '; color: ' + (r.recipient_status === 'given' ? 'white' : 'var(--color-text)') + ';"><span style="flex: 1;">' + r.name + '</span><select onchange="window.app.updateRecipientStatus(' + e.id + ', ' + r.id + ', this.value)" style="padding: 2px; font-size: 11px; background-color: transparent; border: none; color: inherit; cursor: pointer;"><option value="no_gift" ' + (r.recipient_status === 'no_gift' ? 'selected' : '') + '>No gift</option><option value="idea" ' + (r.recipient_status === 'idea' ? 'selected' : '') + '>Idea</option><option value="planned" ' + (r.recipient_status === 'planned' ? 'selected' : '') + '>Planned</option><option value="bought" ' + (r.recipient_status === 'bought' ? 'selected' : '') + '>Bought</option><option value="wrapped" ' + (r.recipient_status === 'wrapped' ? 'selected' : '') + '>Wrapped</option><option value="given" ' + (r.recipient_status === 'given' ? 'selected' : '') + '>Given</option></select></div>';
+                        });
+                        
+                        if (e.type !== 'birthday') {
+                            html += '<select id="addperson_' + e.id + '" class="w-full p-1 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option>Add person</option>' + this.getSortedPeople().filter(p => !e.people.find(ep => ep.id === p.id)).map(p => '<option value="' + p.id + '">' + p.fullName + '</option>').join('') + '</select>';
+                            html += '<button onclick="const pid = parseInt(document.getElementById(\'addperson_' + e.id + '\').value); if(pid) { window.app.addPersonToEvent(' + e.id + ', pid); }" class="w-full py-1 rounded text-sm mb-2" style="background-color: var(--color-accent); color: white;">+ Add Person</button>';
+                        }
+                        
+                        html += '</div>';
                     }
+                    
+                    // Gifts section
+                    if (!isMessageOnly) {
+                        html += '<select id="eg_' + e.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option>Add gift</option>' + this.gifts.filter(g => !egifts.find(eg => eg.id === g.id)).map(g => '<option value="' + g.id + '">' + g.giftName + '</option>').join('') + '</select>';
+                        
+                        // For group events, show recipient selector
+                        if (isGroupEvent) {
+                            html += '<select id="egr_' + e.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option value="">Select recipient</option>' + (e.people || []).map(p => '<option value="' + p.id + '">' + p.name + '</option>').join('') + '</select>';
+                            html += '<button onclick="const gid = document.getElementById(\'eg_' + e.id + '\').value; const pid = parseInt(document.getElementById(\'egr_' + e.id + '\').value); if(gid && pid) window.app.addGiftToEvent(' + e.id + ', parseInt(gid), pid); else if(gid) alert(\'Please select a recipient\')" class="w-full py-1 rounded text-sm mb-2" style="background-color: var(--color-secondary); color: var(--color-text);">Add Gift to Recipient</button>';
+                        } else {
+                            html += '<button onclick="const gid = document.getElementById(\'eg_' + e.id + '\').value; if(gid) window.app.addGiftToEvent(' + e.id + ', parseInt(gid))" class="w-full py-1 rounded text-sm mb-2" style="background-color: var(--color-secondary); color: var(--color-text);">Add Existing Gift</button>';
+                        }
+                    }
+                    
+                    // Message only checklist
                     if (isMessageOnly) {
                         html += '<div class="mt-3 border-t pt-3" style="border-color: var(--color-border);"><p class="text-xs font-semibold mb-2" style="color: var(--color-text-muted); text-transform: uppercase;">Message Only Checklist</p>';
                         if (!e.messages) e.messages = [];
@@ -768,13 +912,42 @@ class GiftTracker {
                         });
                         html += '<input type="text" id="msg_' + e.id + '" placeholder="Person name" class="w-full p-1 rounded border mb-1" style="background-color: var(--color-surface); border-color: var(--color-border); font-size: 11px;"><button onclick="const name = document.getElementById(\'msg_' + e.id + '\').value; if(name) { window.app.addMessageToEvent(' + e.id + ', name); document.getElementById(\'msg_' + e.id + '\').value = \'\'; }" class="w-full py-1 rounded text-sm" style="background-color: var(--color-accent); color: white;">+ Add Person</button></div>';
                     }
+                    
+                    // Gifts assigned
                     if (egifts.length > 0) {
-                        html += '<div class="p-2 rounded border mb-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">ASSIGNED GIFTS</p>';
-                        egifts.forEach(g => {
-                            html += '<div style="color: var(--color-text); font-size: 12px;">• ' + g.giftName + ' £' + g.price.toFixed(2) + '</div>';
-                        });
+                        html += '<div class="p-2 rounded border mb-2 mt-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-2" style="color: var(--color-text-muted);">ASSIGNED GIFTS</p>';
+                        
+                        if (isGroupEvent) {
+                            // Group gifts by recipient
+                            const giftsByRecipient = {};
+                            egifts.forEach(g => {
+                                const recipientId = g.recipientId;
+                                const recipientName = e.people.find(p => p.id === recipientId)?.name || 'Unassigned';
+                                if (!giftsByRecipient[recipientId]) {
+                                    giftsByRecipient[recipientId] = { name: recipientName, gifts: [] };
+                                }
+                                giftsByRecipient[recipientId].gifts.push(g);
+                            });
+                            
+                            Object.keys(giftsByRecipient).forEach(rid => {
+                                const recipient = giftsByRecipient[rid];
+                                const recipientTotal = recipient.gifts.reduce((s, g) => s + g.price, 0);
+                                html += '<div style="margin-bottom: 8px; padding: 6px; background-color: white; border-radius: 4px; border-left: 3px solid var(--color-accent);"><p style="color: var(--color-text); font-weight: 500; margin-bottom: 4px; font-size: 12px;">' + recipient.name + ' (£' + recipientTotal.toFixed(2) + ')</p>';
+                                recipient.gifts.forEach(g => {
+                                    html += '<div style="color: var(--color-text); font-size: 11px; margin-left: 8px;">• ' + g.giftName + ' £' + g.price.toFixed(2) + '</div>';
+                                });
+                                html += '</div>';
+                            });
+                        } else {
+                            // For non-group events, display flat list
+                            egifts.forEach(g => {
+                                html += '<div style="color: var(--color-text); font-size: 12px;">• ' + g.giftName + ' £' + g.price.toFixed(2) + '</div>';
+                            });
+                        }
+                        
                         html += '</div>';
                     }
+                    
                     html += '</div>';
                 }
                 html += '</div></div><div class="swipe-delete" onclick="window.app.deleteEvent(' + e.id + ')">Delete</div></div>';
@@ -785,22 +958,38 @@ class GiftTracker {
     }
 
     renderGiftsTab() {
-        let html = '<div class="mb-4"><input type="text" placeholder="Search gifts..." class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" oninput="window.app.setSearchText(this.value)"></div><div class="mb-4"><button onclick="window.app.showPurchased = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showPurchased === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + ';">All</button><button onclick="window.app.showPurchased = \'purchased\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showPurchased === 'purchased' ? 'var(--color-success)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'purchased' ? 'white' : 'var(--color-text)') + ';">Purchased</button><button onclick="window.app.showPurchased = \'not purchased\'; window.app.render()" class="px-4 py-2 rounded text-sm" style="background-color: ' + (this.showPurchased === 'not purchased' ? 'var(--color-warning)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'not purchased' ? 'white' : 'var(--color-text)') + ';">Not Purchased</button></div>';
+        let html = '<div class="mb-4"><input type="text" placeholder="Search gifts..." class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" oninput="window.app.setSearchText(this.value)"></div><div class="mb-4"><button onclick="window.app.showPurchased = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showPurchased === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + ';">All</button><button onclick="window.app.showPurchased = \'purchased\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showPurchased === 'purchased' ? 'var(--color-success)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'purchased' ? 'white' : 'var(--color-text)') + ';">Purchased</button><button onclick="window.app.showPurchased = \'idea\'; window.app.render()" class="px-4 py-2 rounded text-sm" style="background-color: ' + (this.showPurchased === 'idea' ? 'var(--color-warning)' : 'var(--color-secondary)') + '; color: ' + (this.showPurchased === 'idea' ? 'white' : 'var(--color-text)') + ';">Ideas</button></div>';
+        
         if (this.addingGift) {
-            html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Gift</h3><input type="text" id="gname" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="gperson" placeholder="Person" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="number" id="gprice" placeholder="Price" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="gurl" placeholder="URL" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="gnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><select id="gcat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="other">Category</option><option value="clothing">Clothing</option><option value="experience">Experience</option><option value="tech">Tech</option><option value="book">Book</option><option value="home">Home</option><option value="beauty">Beauty</option><option value="sport">Sport</option></select><select id="gstatus" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="not purchased">Not Purchased</option><option value="purchased">Purchased</option></select><button onclick="window.app.addGift(document.getElementById(\'gname\').value, document.getElementById(\'gperson\').value, null, document.getElementById(\'gprice\').value, document.getElementById(\'gstatus\').value, document.getElementById(\'gcat\').value, document.getElementById(\'gurl\').value, document.getElementById(\'gnotes\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddGift()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+            html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Gift</h3><input type="text" id="gname" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="gperson" placeholder="Person" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="number" id="gprice" placeholder="Price" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="gurl" placeholder="URL" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="gnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><select id="gcat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="other">Category</option><option value="clothing">Clothing</option><option value="experience">Experience</option><option value="tech">Tech</option><option value="book">Book</option><option value="home">Home</option><option value="beauty">Beauty</option><option value="sport">Sport</option></select><select id="gstatus" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea">Idea</option><option value="planned">Planned</option><option value="bought">Bought</option><option value="wrapped">Wrapped</option><option value="given">Given</option></select><button onclick="window.app.addGift(document.getElementById(\'gname\').value, document.getElementById(\'gperson\').value, null, document.getElementById(\'gprice\').value, document.getElementById(\'gstatus\').value, document.getElementById(\'gcat\').value, document.getElementById(\'gurl\').value, document.getElementById(\'gnotes\').value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddGift()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
         }
-        const filtered = this.filterGiftsBySearch(this.gifts.filter(g => this.showPurchased === 'all' ? true : g.status === this.showPurchased));
+        
+        let filtered = this.filterGiftsBySearch(this.gifts);
+        if (this.showPurchased === 'purchased') {
+            filtered = filtered.filter(g => g.status === 'bought' || g.status === 'wrapped' || g.status === 'given');
+        } else if (this.showPurchased === 'idea') {
+            filtered = filtered.filter(g => g.status === 'idea' || g.status === 'planned');
+        }
+        
         filtered.forEach(g => {
             const isExp = this.expandedGift === g.id;
-            html += '<div class="mb-3 swipe-item" data-swipe-item data-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">£' + g.price.toFixed(2) + ' • ' + g.personName + ' • ' + g.status + '</p></button>';
+            const statusIcon = g.status === 'given' ? '✓' : g.status === 'wrapped' ? '📦' : g.status === 'bought' ? '🛒' : g.status === 'planned' ? '📋' : '💡';
+            html += '<div class="mb-3 swipe-item" data-swipe-item data-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">£' + g.price.toFixed(2) + ' • ' + g.personName + ' • ' + statusIcon + ' ' + g.status + '</p></button>';
             if (isExp) {
                 const event = this.events.find(e => e.id === g.eventId);
-                html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Category</p><p style="color: var(--color-text);">' + (g.category || 'other') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Event</p><p style="color: var(--color-text);">' + (event ? event.name : 'No event') + '</p></div>';
-                if (g.url) {
-                    html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">URL</p><p><a href="' + g.url + '" target="_blank" style="color: var(--color-accent);">View link</a></p></div>';
-                }
-                if (g.notes) {
-                    html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Notes</p><p style="color: var(--color-text);">' + g.notes + '</p></div>';
+                const isEdit = this.editingGift === g.id;
+                
+                if (isEdit) {
+                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><input type="text" id="eg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="number" id="eg_price_' + g.id + '" value="' + g.price + '" placeholder="Price" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="eg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + (g.notes || '') + '</textarea><select id="eg_status_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea" ' + (g.status === 'idea' ? 'selected' : '') + '>Idea</option><option value="planned" ' + (g.status === 'planned' ? 'selected' : '') + '>Planned</option><option value="bought" ' + (g.status === 'bought' ? 'selected' : '') + '>Bought</option><option value="wrapped" ' + (g.status === 'wrapped' ? 'selected' : '') + '>Wrapped</option><option value="given" ' + (g.status === 'given' ? 'selected' : '') + '>Given</option></select><button onclick="window.app.updateGift(' + g.id + ', {giftName: document.getElementById(\'eg_name_' + g.id + '\').value, price: parseFloat(document.getElementById(\'eg_price_' + g.id + '\').value), notes: document.getElementById(\'eg_notes_' + g.id + '\').value, status: document.getElementById(\'eg_status_' + g.id + '\').value}); window.app.editingGift = null;" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button><button onclick="window.app.toggleEditGift(' + g.id + ')" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                } else {
+                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Category</p><p style="color: var(--color-text);">' + (g.category || 'other') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Status</p><p style="color: var(--color-text);">' + statusIcon + ' ' + g.status + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Event</p><p style="color: var(--color-text);">' + (event ? event.name : 'No event') + '</p></div>';
+                    if (g.url) {
+                        html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">URL</p><p><a href="' + g.url + '" target="_blank" style="color: var(--color-accent);">View link</a></p></div>';
+                    }
+                    if (g.notes) {
+                        html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Notes</p><p style="color: var(--color-text);">' + g.notes + '</p></div>';
+                    }
+                    html += '<button onclick="window.app.toggleEditGift(' + g.id + ')" class="w-full py-2 rounded mt-2" style="background-color: var(--color-secondary); color: var(--color-text);">Edit</button>';
                 }
             }
             html += '</div></div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
