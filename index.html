@@ -267,17 +267,15 @@ class GiftTracker {
         const statuses = ['idea', 'planned', 'bought', 'wrapped', 'gifted'];
         let html = '<div style="padding: 20px; text-align: center;"><h3 style="margin-bottom: 10px; color: #2D3436;">Gift: ' + g.giftName + '</h3><p style="margin-bottom: 20px; color: #636E72;">Current status: <strong>' + g.status + '</strong></p><label style="display: block; margin-bottom: 15px; color: #2D3436;">Select new status:</label><select id="statusSelect" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #DFE6E9; border-radius: 4px; font-size: 16px;"><option value="">-- Select Status --</option>' + statuses.map(s => '<option value="' + s + '"' + (s === g.status ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>').join('') + '</select></div>';
         
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-        
         // Create a custom dialog-like experience by using a temporary modal
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         
         const dialog = document.createElement('div');
         dialog.style.cssText = 'background: white; border-radius: 12px; padding: 30px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
-        dialog.innerHTML = html + '<div style="display: flex; gap: 10px; justify-content: flex-end;"><button onclick="this.closest(\'[data-modal]\').remove()" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #FFE66D; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button onclick="const select = document.getElementById(\'statusSelect\'); const status = select.value; if(status) { window.app.updateGift(' + gid + ', {status: status}); this.closest(\'[data-modal]\').remove(); } else { alert(\'Please select a status\'); }" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #FF6B9D; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
-        dialog.setAttribute('data-modal', 'true');
+        dialog.innerHTML = html + '<div style="display: flex; gap: 10px; justify-content: flex-end;"><button onclick="document.querySelector(\'[data-modal-overlay]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #FFE66D; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button onclick="const select = document.getElementById(\'statusSelect\'); const status = select.value; if(status) { window.app.updateGift(' + gid + ', {status: status}); document.querySelector(\'[data-modal-overlay]\').remove(); } else { alert(\'Please select a status\'); }" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #FF6B9D; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
+        
+        modal.setAttribute('data-modal-overlay', 'true');
         modal.appendChild(dialog);
         document.body.appendChild(modal);
         
@@ -286,6 +284,7 @@ class GiftTracker {
             if (e.target === modal) modal.remove();
         });
     }
+    
     
     addPersonToEvent(eid, personFullName) {
         const e = this.events.find(x => x.id === eid);
@@ -411,6 +410,11 @@ class GiftTracker {
     getGiftsForEvent(eid) { return this.gifts.filter(g => g.eventId === eid); }
     getGiftsForPerson(name) { return this.gifts.filter(g => g.personName === name); }
     getGiftsForEventAndPerson(eid, name) { return this.gifts.filter(g => g.eventId === eid && g.personName === name); }
+    areAllEventGiftsGifted(eid) { 
+        const gifts = this.getGiftsForEvent(eid);
+        if (gifts.length === 0) return false;
+        return gifts.every(g => g.status === 'gifted');
+    }
     isEventUpcoming(e) { const p = e.date.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) >= new Date(); }
     getSortedPeople() { return [...this.people].sort((a, b) => a.fullName.localeCompare(b.fullName)); }
     getGiftablePeople() { return this.getSortedPeople().filter(p => !p.fyiOnly); }
@@ -938,7 +942,9 @@ class GiftTracker {
                 const budgetStatus = this.getBudgetStatus(e);
                 const person = e.personId ? this.people.find(p => p.id === e.personId) : null;
                 const isMessageOnly = person && person.messageOnly;
-                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border); display: block; overflow: visible;"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left" style="display: block; background: none; border: none; padding: 0; margin-bottom: 12px;"><h3 class="font-semibold" style="color: var(--color-text); margin: 0;">' + e.name + '</h3><p class="text-sm" style="color: var(--color-text-muted); margin: 4px 0 0 0;">' + (isMessageOnly ? '💬 Message Only' : 'Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus) + '</p></button>';
+                const allGiftsGifted = this.areAllEventGiftsGifted(e.id);
+                const borderColor = allGiftsGifted ? 'var(--color-success)' : 'var(--color-warning)';
+                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: ' + borderColor + '; display: block; overflow: visible;"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left" style="display: block; background: none; border: none; padding: 0; margin-bottom: 12px;"><h3 class="font-semibold" style="color: var(--color-text); margin: 0;">' + e.name + '</h3><p class="text-sm" style="color: var(--color-text-muted); margin: 4px 0 0 0;">' + (isMessageOnly ? '💬 Message Only' : 'Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus) + '</p></button>';
                 if (isExp) {
                     html += '<div style="width: 100%; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border);">';
                     if (!isMessageOnly) {
