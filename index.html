@@ -1078,7 +1078,9 @@ class GiftTracker {
             const selectedPerson = this.giftFormState.person;
             const personEvents = selectedPerson ? this.events.filter(e => {
                 const person = this.people.find(p => p.fullName === selectedPerson);
-                return person && e.personId === person.id;
+                if (!person) return false;
+                // Check if it's a birthday event for this person OR a group event that includes this person
+                return e.personId === person.id || (e.people && e.people.some(ep => ep.name === selectedPerson));
             }).sort((a, b) => {
                 const [dA, mA, yA] = a.date.split('-');
                 const [dB, mB, yB] = b.date.split('-');
