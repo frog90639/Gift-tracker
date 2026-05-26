@@ -403,7 +403,52 @@ class GiftTracker {
         }
         this.addingGift = false; this.newGiftEventId = null; this.newGiftPersonName = null; this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' }; this.saveData(); this.render();
     }
-    updateGift(id, updates) { const g = this.gifts.find(x => x.id === id); if (g) Object.assign(g, updates); this.saveData(); this.render(); }
+    updateGift(id, updates) { 
+        const g = this.gifts.find(x => x.id === id);
+        if (g) {
+            const oldEventId = g.eventId;
+            const newEventId = updates.eventId;
+            const personName = updates.personName || g.personName;
+            
+            Object.assign(g, updates);
+            
+            // If the event changed, update the event's giftAssignments
+            if (oldEventId !== newEventId) {
+                // Remove from old event if it existed
+                if (oldEventId) {
+                    const oldEvent = this.events.find(e => e.id === oldEventId);
+                    if (oldEvent) {
+                        if (oldEvent.giftAssignments) {
+                            oldEvent.giftAssignments = oldEvent.giftAssignments.filter(ga => ga.giftId !== id);
+                        }
+                        if (oldEvent.giftIds) {
+                            oldEvent.giftIds = oldEvent.giftIds.filter(gid => gid !== id);
+                        }
+                    }
+                }
+                
+                // Add to new event if specified
+                if (newEventId && personName) {
+                    const newEvent = this.events.find(e => e.id === newEventId);
+                    if (newEvent) {
+                        if (!newEvent.giftAssignments) newEvent.giftAssignments = [];
+                        if (!newEvent.giftIds) newEvent.giftIds = [];
+                        
+                        // Add assignment if it doesn't exist
+                        if (!newEvent.giftAssignments.find(ga => ga.giftId === id && ga.personName === personName)) {
+                            newEvent.giftAssignments.push({giftId: id, personName: personName});
+                        }
+                        if (!newEvent.giftIds.includes(id)) {
+                            newEvent.giftIds.push(id);
+                        }
+                    }
+                }
+            }
+            
+            this.saveData();
+            this.render();
+        }
+    }
     deleteGift(id) { this.gifts = this.gifts.filter(g => g.id !== id); this.events.forEach(e => { if (e.giftIds) e.giftIds = e.giftIds.filter(gid => gid !== id); }); this.saveData(); this.render(); }
     expandGift(id) { this.expandedGift = this.expandedGift === id ? null : id; this.editingGift = null; this.render(); }
     toggleEditGift(id) { this.editingGift = this.editingGift === id ? null : id; this.render(); }
