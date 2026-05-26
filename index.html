@@ -508,19 +508,32 @@ class GiftTracker {
         let csv = 'GIFT TRACKER EXPORT\n';
         csv += 'Export Date: ' + new Date().toLocaleString() + '\n\n';
         csv += '=== PEOPLE ===\n';
-        csv += 'ID,Full Name,Birthday (DD-MM),Birth Year,Likes,Dislikes,Notes,Include in Christmas\n';
+        csv += 'ID,Full Name,Birthday (DD-MM),Birth Year,Likes,Dislikes,Notes,Message Only,FYI Only,Include in Christmas\n';
         this.people.forEach(p => {
-            csv += p.id + ',"' + p.fullName + '",' + p.birthday + ',' + p.birthYear + ',"' + (p.likes || '') + '","' + (p.dislikes || '') + '","' + (p.notes || '') + '",' + (p.includeInChristmas ? 'Yes' : 'No') + '\n';
+            csv += p.id + ',"' + p.fullName + '",' + p.birthday + ',' + p.birthYear + ',"' + (p.likes || '') + '","' + (p.dislikes || '') + '","' + (p.notes || '') + '",' + (p.messageOnly ? 'Yes' : 'No') + ',' + (p.fyiOnly ? 'Yes' : 'No') + ',' + (p.includeInChristmas ? 'Yes' : 'No') + '\n';
         });
         csv += '\n=== EVENTS ===\n';
-        csv += 'ID,Type,Name,Date (DD-MM-YYYY),Budget,Notes,Person ID,Person Name,Year\n';
+        csv += 'ID,Type,Name,Date (DD-MM-YYYY),Budget,Notes,Person ID,Person Name,Year,Messaged\n';
         this.events.forEach(e => {
-            csv += e.id + ',' + e.type + ',"' + e.name + '",' + e.date + ',' + e.budget + ',"' + (e.notes || '') + '",' + (e.personId || '') + ',"' + (e.personName || '') + '",' + e.year + '\n';
+            csv += e.id + ',' + e.type + ',"' + e.name + '",' + e.date + ',' + e.budget + ',"' + (e.notes || '') + '",' + (e.personId || '') + ',"' + (e.personName || '') + '",' + e.year + ',' + (e.messaged ? 'Yes' : 'No') + '\n';
         });
         csv += '\n=== GIFTS ===\n';
-        csv += 'ID,Gift Name,Person Name,Event ID,Status,Price,URL,Notes,Category\n';
+        csv += 'ID,Gift Name,Person Name,Event ID,Event Name,Status,Price,Shop,URL,Notes,Purchase Year\n';
         this.gifts.forEach(g => {
-            csv += g.id + ',"' + g.giftName + '","' + (g.personName || '') + '",' + (g.eventId || '') + ',' + g.status + ',' + g.price + ',"' + (g.url || '') + '","' + (g.notes || '') + '",' + (g.category || 'other') + '\n';
+            const event = this.events.find(e => e.id === g.eventId);
+            const eventName = event ? event.name : '';
+            csv += g.id + ',"' + g.giftName + '","' + (g.personName || '') + '",' + (g.eventId || '') + ',"' + eventName + '",' + g.status + ',' + g.price + ',"' + (g.shop || '') + '","' + (g.url || '') + '","' + (g.notes || '') + '",' + (g.purchaseYear || new Date().getFullYear()) + '\n';
+        });
+        csv += '\n=== GIFT ASSIGNMENTS (Event-Gift-Person Links) ===\n';
+        csv += 'Event ID,Event Name,Gift ID,Gift Name,Person Name\n';
+        this.events.forEach(e => {
+            if (e.giftAssignments && e.giftAssignments.length > 0) {
+                e.giftAssignments.forEach(ga => {
+                    const gift = this.gifts.find(g => g.id === ga.giftId);
+                    const giftName = gift ? gift.giftName : '';
+                    csv += e.id + ',"' + e.name + '",' + ga.giftId + ',"' + giftName + '","' + ga.personName + '"\n';
+                });
+            }
         });
         const blob = new Blob([csv], {type: 'text/csv'});
         const link = document.createElement('a');
