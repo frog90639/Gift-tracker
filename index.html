@@ -304,6 +304,15 @@ class GiftTracker {
         const e = this.events.find(x => x.id === eid);
         if (e) {
             e.people = e.people.filter(p => p.name !== personName);
+            
+            // For group events (like Christmas), track excluded people so they don't reappear
+            if (e.type === 'christmas' || e.type === 'group') {
+                if (!e.excludedPeople) e.excludedPeople = [];
+                if (!e.excludedPeople.includes(personName)) {
+                    e.excludedPeople.push(personName);
+                }
+            }
+            
             // Also remove any gift assignments for this person
             if (e.giftAssignments) {
                 e.giftAssignments = e.giftAssignments.filter(ga => ga.personName !== personName);
@@ -1003,6 +1012,8 @@ class GiftTracker {
                                 // Check if their birthday has passed in the Christmas year
                                 const [day, month] = p.birthday.split('-');
                                 const birthdayInYear = new Date(christmasYear, parseInt(month) - 1, parseInt(day));
+                                // Exclude people who were manually removed from this event
+                                if (e.excludedPeople && e.excludedPeople.includes(p.fullName)) return false;
                                 return birthdayInYear <= christmasDate;
                             }).map(p => ({name: p.fullName, budget: 0}));
                             
