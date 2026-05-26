@@ -927,10 +927,9 @@ class GiftTracker {
                         });
                         html += '</div>';
                     }
-                    html += '<button onclick="window.app.toggleEditPerson(' + p.id + ')" class="w-full py-2 rounded mt-2" style="background-color: var(--color-secondary); color: var(--color-text);">Edit</button>';
                 }
             }
-            html += '</div></div><div class="swipe-delete" onclick="window.app.deletePerson(' + p.id + ')">Delete</div></div>';
+            html += '</div></div><div class="swipe-edit" onclick="window.app.toggleEditPerson(' + p.id + ')">Edit</div><div class="swipe-delete" onclick="window.app.deletePerson(' + p.id + ')">Delete</div></div>';
         });
         return html;
     }
@@ -1115,10 +1114,9 @@ class GiftTracker {
                     if (g.shop) {
                         html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Shop</p><p style="color: var(--color-text);">' + g.shop + '</p></div>';
                     }
-                    html += '<button onclick="window.app.toggleEditGift(' + g.id + ')" class="w-full py-2 rounded mt-2" style="background-color: var(--color-secondary); color: var(--color-text);">Edit</button>';
                 }
             }
-            html += '</div></div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
+            html += '</div></div><div class="swipe-edit" onclick="window.app.toggleEditGift(' + g.id + ')">Edit</div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
         });
         return html;
     }
