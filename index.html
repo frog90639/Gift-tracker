@@ -66,6 +66,9 @@ class GiftTracker {
         this.showPeopleChristmas = 'all';
         this.showPeopleFYI = 'all';
         this.showSettings = false;
+        this.groupEditMode = false;
+        this.selectedPeopleForGroupEdit = [];
+        this.groupEditChanges = {};
         this.searchText = '';
         this.eventsSearchText = '';
         this.peopleSearchText = '';
@@ -122,6 +125,47 @@ class GiftTracker {
         });
     }
     toggleAddPerson() { this.addingPerson = !this.addingPerson; this.render(); }
+    toggleGroupEditMode() {
+        this.groupEditMode = !this.groupEditMode;
+        this.selectedPeopleForGroupEdit = [];
+        this.render();
+    }
+    togglePersonForGroupEdit(personId) {
+        const idx = this.selectedPeopleForGroupEdit.indexOf(personId);
+        if (idx > -1) {
+            this.selectedPeopleForGroupEdit.splice(idx, 1);
+        } else {
+            this.selectedPeopleForGroupEdit.push(personId);
+        }
+    }
+    applyGroupEdit() {
+        if (this.selectedPeopleForGroupEdit.length === 0) {
+            alert('Please select at least one person');
+            return;
+        }
+        
+        const changes = {};
+        if (document.getElementById('group_likes')?.value) changes.likes = document.getElementById('group_likes').value;
+        if (document.getElementById('group_dislikes')?.value) changes.dislikes = document.getElementById('group_dislikes').value;
+        if (document.getElementById('group_notes')?.value) changes.notes = document.getElementById('group_notes').value;
+        if (document.getElementById('group_cat')?.value) changes.category = document.getElementById('group_cat').value;
+        if (document.getElementById('group_msg')?.checked) changes.messageOnly = true;
+        if (document.getElementById('group_fyi')?.checked) changes.fyiOnly = true;
+        if (document.getElementById('group_xmas')?.checked) changes.includeInChristmas = true;
+        
+        if (Object.keys(changes).length === 0) {
+            alert('Please make at least one change');
+            return;
+        }
+        
+        this.selectedPeopleForGroupEdit.forEach(personId => {
+            this.updatePerson(personId, changes);
+        });
+        
+        this.groupEditMode = false;
+        this.selectedPeopleForGroupEdit = [];
+        this.render();
+    }
     addPerson(name, bday, year, likes, dislikes, notes, messageOnly, fyiOnly, category) {
         if (!name || !bday || !year) return alert('Need name, birthday (DD-MM), year');
         this.people.push({ id: Math.max(...this.people.map(p => p.id), 0) + 1, fullName: name, birthday: bday, birthYear: parseInt(year), likes: likes || '', dislikes: dislikes || '', notes: notes || '', giftHistory: [], includeInChristmas: false, messageOnly: messageOnly || false, fyiOnly: fyiOnly || false, category: category || 'friend' });
@@ -986,10 +1030,13 @@ class GiftTracker {
     }
 
     renderPeopleTab() {
-        let html = '<div class="mb-4"><input type="text" placeholder="Search people..." oninput="window.app.handleSearchInput(event)" onkeypress="window.app.handleSearchKeypress(event)" class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" value="' + (this.peopleSearchText || '') + '"></div>';
+        let html = '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px;"><input type="text" placeholder="Search people..." oninput="window.app.handleSearchInput(event)" onkeypress="window.app.handleSearchKeypress(event)" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" value="' + (this.peopleSearchText || '') + '"><button onclick="window.app.toggleGroupEditMode()" class="px-3 py-2 rounded" style="background-color: ' + (this.groupEditMode ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.groupEditMode ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 18px;">☑️</button></div>';
         html += '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px; flex-wrap: wrap;"><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="All">🎁</button><button onclick="window.app.showPeopleMessage = \'message\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'message' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'message' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Message Only">💬</button><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'christmas\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'christmas' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'christmas' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Christmas">🎄</button><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'fyi\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'fyi' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'fyi' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="FYI Only">ℹ️</button></div>';
         if (this.addingPerson) {
             html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Person</h3><input type="text" id="pname" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="pbday" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="pcat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="friend">Friend</option><option value="family">Family</option></select><input type="text" id="plikes" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="pdislikes" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="pnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><div class="mb-2"><input type="checkbox" id="pmsg"><label for="pmsg" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="pfyi"><label for="pfyi" style="color: var(--color-text); margin-left: 8px;"> FYI Only (No Events)</label></div><div class="mb-2"><input type="checkbox" id="pxmas"><label for="pxmas" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><button onclick="const dateInput = document.getElementById(\'pbday\').value; if(!dateInput) { alert(\'Please select a birthday\'); return; } const [y, m, d] = dateInput.split(\'-\'); const bdayStr = d + \'-\' + m; window.app.addPerson(document.getElementById(\'pname\').value, bdayStr, y, document.getElementById(\'plikes\').value, document.getElementById(\'pdislikes\').value, document.getElementById(\'pnotes\').value, document.getElementById(\'pmsg\').checked, document.getElementById(\'pfyi\').checked, document.getElementById(\'pcat\').value); document.getElementById(\'pxmas\').checked && window.app.updatePerson(window.app.people[window.app.people.length-1].id, {includeInChristmas: true});" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddPerson()" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+        }
+        if (this.groupEditMode) {
+            html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Group Edit</h3><p style="color: var(--color-text); margin-bottom: 12px;">Select people above, then fill in fields to apply changes to all selected people:</p><input type="text" id="group_likes" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="group_dislikes" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="group_notes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="group_cat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">No change</option><option value="friend">Friend</option><option value="family">Family</option></select><div class="mb-2"><input type="checkbox" id="group_msg"><label for="group_msg" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="group_fyi"><label for="group_fyi" style="color: var(--color-text); margin-left: 8px;"> FYI Only</label></div><div class="mb-2"><input type="checkbox" id="group_xmas"><label for="group_xmas" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 12px;">Selected: ' + this.selectedPeopleForGroupEdit.length + ' person(s)</p><button onclick="window.app.applyGroupEdit()" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button><button onclick="window.app.toggleGroupEditMode()" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
         }
         const filtered = this.filterPeopleBySearch(this.getSortedPeople(), this.peopleSearchText).filter(p => {
             // Filter by message/gift/fyi status
@@ -1004,7 +1051,7 @@ class GiftTracker {
             const spent = pgifts.reduce((s, g) => s + g.price, 0);
             const nextEvent = this.getNextEvent(p);
             const daysUntil = this.getDaysUntil(p);
-            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandPerson(' + p.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + p.fullName + (p.messageOnly ? ' 💬' : '') + (p.fyiOnly ? ' ℹ️' : '') + (!p.messageOnly && !p.fyiOnly ? ' 🎁' : '') + (p.includeInChristmas ? ' 🎄' : '') + '</h3><p class="text-sm" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button>';
+            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"' + (this.groupEditMode ? ' style="display: flex; align-items: center; gap: 12px;"' : '') + '>' + (this.groupEditMode ? '<input type="checkbox" onchange="window.app.togglePersonForGroupEdit(' + p.id + ')" ' + (this.selectedPeopleForGroupEdit.includes(p.id) ? 'checked' : '') + ' style="width: 20px; height: 20px; cursor: pointer;">' : '') + '<button onclick="window.app.expandPerson(' + p.id + ')" class="' + (this.groupEditMode ? 'flex-1 text-left' : 'w-full text-left') + '"><h3 class="font-semibold" style="color: var(--color-text);">' + p.fullName + (p.messageOnly ? ' 💬' : '') + (p.fyiOnly ? ' ℹ️' : '') + (!p.messageOnly && !p.fyiOnly ? ' 🎁' : '') + (p.includeInChristmas ? ' 🎄' : '') + '</h3><p class="text-sm" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button></div>';
             if (isExp) {
                 const isEdit = this.editingPerson === p.id;
                 if (isEdit) {
