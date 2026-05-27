@@ -1000,8 +1000,9 @@ class GiftTracker {
             if (this.showPeopleFYI === 'fyi' && !p.fyiOnly) return false;
             if (this.showPeopleChristmas === 'christmas' && !p.includeInChristmas) return false;
             // Filter by category (buttons 5-6) - can be combined with 1-4
-            if (this.showPeopleCategory === 'family' && p.category !== 'family') return false;
-            if (this.showPeopleCategory === 'friend' && p.category !== 'friend') return false;
+            const personCategory = p.category || 'friend'; // Default to friend if not set
+            if (this.showPeopleCategory === 'family' && personCategory !== 'family') return false;
+            if (this.showPeopleCategory === 'friend' && personCategory !== 'friend') return false;
             return true;
         });
         filtered.forEach(p => {
@@ -1010,7 +1011,7 @@ class GiftTracker {
             const spent = pgifts.reduce((s, g) => s + g.price, 0);
             const nextEvent = this.getNextEvent(p);
             const daysUntil = this.getDaysUntil(p);
-            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandPerson(' + p.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + (p.category === 'family' ? '👨‍👩‍👧‍👦 ' : '👫 ') + p.fullName + (p.messageOnly ? ' 💬' : '') + (p.fyiOnly ? ' ℹ️' : '') + (!p.messageOnly && !p.fyiOnly ? ' 🎁' : '') + (p.includeInChristmas ? ' 🎄' : '') + '</h3><p class="text-sm" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button>';
+            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandPerson(' + p.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + ((p.category === 'family') ? '👨‍👩‍👧‍👦 ' : '👫 ') + p.fullName + (p.messageOnly ? ' 💬' : '') + (p.fyiOnly ? ' ℹ️' : '') + (!p.messageOnly && !p.fyiOnly ? ' 🎁' : '') + (p.includeInChristmas ? ' 🎄' : '') + '</h3><p class="text-sm" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button>';
             if (isExp && !this.groupEditMode) {
                 const isEdit = this.editingPerson === p.id;
                 if (isEdit) {
