@@ -62,6 +62,9 @@ class GiftTracker {
         this.showEventType = 'upcoming';
         this.showEventReady = 'all';
         this.showEventCompleted = 'all';
+        this.showPeopleMessage = 'all';
+        this.showPeopleChristmas = 'all';
+        this.showPeopleFYI = 'all';
         this.showSettings = false;
         this.searchText = '';
         this.eventsSearchText = '';
@@ -124,6 +127,53 @@ class GiftTracker {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const [day, month] = ddmm.split('-');
         return day + ' ' + months[parseInt(month) - 1] + ' ' + year;
+    }
+    formatDateOrdinal(dateStr) {
+        // dateStr format: DD-MM-YYYY
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const [day, month, year] = dateStr.split('-');
+        const dayNum = parseInt(day);
+        const monthNum = parseInt(month) - 1;
+        const suffix = ['st', 'nd', 'rd'][dayNum % 10] || 'th';
+        if ([11, 12, 13].includes(dayNum % 100)) return dayNum + 'th ' + months[monthNum];
+        return dayNum + suffix + ' ' + months[monthNum];
+    }
+    getEventDateColor(event) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const [day, month, year] = event.date.split('-');
+        const eventDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        eventDate.setHours(0, 0, 0, 0);
+        
+        const daysUntil = Math.floor((eventDate - today) / (1000 * 60 * 60 * 24));
+        const isPast = daysUntil < 0;
+        const isToday = daysUntil === 0;
+        const person = event.personId ? this.people.find(p => p.id === event.personId) : null;
+        const isMessageOnly = person && person.messageOnly;
+        const allGiftsGifted = this.areAllEventGiftsGifted(event.id);
+        
+        // Future events with gifts - red if less than 30 days away
+        if (!isPast && !isMessageOnly && daysUntil < 30 && daysUntil > 0) {
+            return 'red';
+        }
+        
+        // Message-only events - red only on the day
+        if (isMessageOnly && isToday) {
+            return 'red';
+        }
+        
+        // Past events - red only if gifts weren't given or message wasn't sent
+        if (isPast) {
+            if (isMessageOnly && !event.messaged) {
+                return 'red';
+            }
+            if (!isMessageOnly && !allGiftsGifted) {
+                return 'red';
+            }
+        }
+        
+        return 'var(--color-text-muted)';
     }
     getDaysUntil(person) {
         const today = new Date();
@@ -505,25 +555,38 @@ class GiftTracker {
         return { purchased, unpurchased, total: purchased + unpurchased };
     }
     exportToCSV() {
+        const escapeCSV = (str) => {
+            if (!str) return '';
+            str = String(str);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        };
+        
         let csv = 'GIFT TRACKER EXPORT\n';
         csv += 'Export Date: ' + new Date().toLocaleString() + '\n\n';
+        
         csv += '=== PEOPLE ===\n';
         csv += 'ID,Full Name,Birthday (DD-MM),Birth Year,Likes,Dislikes,Notes,Message Only,FYI Only,Include in Christmas\n';
         this.people.forEach(p => {
-            csv += p.id + ',"' + p.fullName + '",' + p.birthday + ',' + p.birthYear + ',"' + (p.likes || '') + '","' + (p.dislikes || '') + '","' + (p.notes || '') + '",' + (p.messageOnly ? 'Yes' : 'No') + ',' + (p.fyiOnly ? 'Yes' : 'No') + ',' + (p.includeInChristmas ? 'Yes' : 'No') + '\n';
+            csv += escapeCSV(p.id) + ',' + escapeCSV(p.fullName) + ',' + escapeCSV(p.birthday) + ',' + escapeCSV(p.birthYear) + ',' + escapeCSV(p.likes || '') + ',' + escapeCSV(p.dislikes || '') + ',' + escapeCSV(p.notes || '') + ',' + (p.messageOnly ? 'Yes' : 'No') + ',' + (p.fyiOnly ? 'Yes' : 'No') + ',' + (p.includeInChristmas ? 'Yes' : 'No') + '\n';
         });
+        
         csv += '\n=== EVENTS ===\n';
         csv += 'ID,Type,Name,Date (DD-MM-YYYY),Budget,Notes,Person ID,Person Name,Year,Messaged\n';
         this.events.forEach(e => {
-            csv += e.id + ',' + e.type + ',"' + e.name + '",' + e.date + ',' + e.budget + ',"' + (e.notes || '') + '",' + (e.personId || '') + ',"' + (e.personName || '') + '",' + e.year + ',' + (e.messaged ? 'Yes' : 'No') + '\n';
+            csv += escapeCSV(e.id) + ',' + escapeCSV(e.type) + ',' + escapeCSV(e.name) + ',' + escapeCSV(e.date) + ',' + escapeCSV(e.budget) + ',' + escapeCSV(e.notes || '') + ',' + escapeCSV(e.personId || '') + ',' + escapeCSV(e.personName || '') + ',' + escapeCSV(e.year) + ',' + (e.messaged ? 'Yes' : 'No') + '\n';
         });
+        
         csv += '\n=== GIFTS ===\n';
         csv += 'ID,Gift Name,Person Name,Event ID,Event Name,Status,Price,Shop,URL,Notes,Purchase Year\n';
         this.gifts.forEach(g => {
             const event = this.events.find(e => e.id === g.eventId);
             const eventName = event ? event.name : '';
-            csv += g.id + ',"' + g.giftName + '","' + (g.personName || '') + '",' + (g.eventId || '') + ',"' + eventName + '",' + g.status + ',' + g.price + ',"' + (g.shop || '') + '","' + (g.url || '') + '","' + (g.notes || '') + '",' + (g.purchaseYear || new Date().getFullYear()) + '\n';
+            csv += escapeCSV(g.id) + ',' + escapeCSV(g.giftName) + ',' + escapeCSV(g.personName || '') + ',' + escapeCSV(g.eventId || '') + ',' + escapeCSV(eventName) + ',' + escapeCSV(g.status) + ',' + escapeCSV(g.price) + ',' + escapeCSV(g.shop || '') + ',' + escapeCSV(g.url || '') + ',' + escapeCSV(g.notes || '') + ',' + escapeCSV(g.purchaseYear || new Date().getFullYear()) + '\n';
         });
+        
         csv += '\n=== GIFT ASSIGNMENTS (Event-Gift-Person Links) ===\n';
         csv += 'Event ID,Event Name,Gift ID,Gift Name,Person Name\n';
         this.events.forEach(e => {
@@ -531,15 +594,18 @@ class GiftTracker {
                 e.giftAssignments.forEach(ga => {
                     const gift = this.gifts.find(g => g.id === ga.giftId);
                     const giftName = gift ? gift.giftName : '';
-                    csv += e.id + ',"' + e.name + '",' + ga.giftId + ',"' + giftName + '","' + ga.personName + '"\n';
+                    csv += escapeCSV(e.id) + ',' + escapeCSV(e.name) + ',' + escapeCSV(ga.giftId) + ',' + escapeCSV(giftName) + ',' + escapeCSV(ga.personName) + '\n';
                 });
             }
         });
-        const blob = new Blob([csv], {type: 'text/csv'});
+        
+        const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = 'gift-tracker-' + new Date().toISOString().split('T')[0] + '.csv';
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
     }
     importFromPaste(pasteText) {
         try {
@@ -913,10 +979,17 @@ class GiftTracker {
 
     renderPeopleTab() {
         let html = '<div class="mb-4"><input type="text" placeholder="Search people..." oninput="window.app.handleSearchInput(event)" onkeypress="window.app.handleSearchKeypress(event)" class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" value="' + (this.peopleSearchText || '') + '"></div>';
+        html += '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px; flex-wrap: wrap;"><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="All">🎁</button><button onclick="window.app.showPeopleMessage = \'message\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'message' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'message' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Message Only">💬</button><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'christmas\'; window.app.showPeopleFYI = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'christmas' && this.showPeopleFYI === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'christmas' && this.showPeopleFYI === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Christmas">🎄</button><button onclick="window.app.showPeopleMessage = \'all\'; window.app.showPeopleChristmas = \'all\'; window.app.showPeopleFYI = \'fyi\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'fyi' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showPeopleMessage === 'all' && this.showPeopleChristmas === 'all' && this.showPeopleFYI === 'fyi' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="FYI Only">ℹ️</button></div>';
         if (this.addingPerson) {
             html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Person</h3><input type="text" id="pname" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="pbday" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="text" id="plikes" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="pdislikes" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="pnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><div class="mb-2"><input type="checkbox" id="pmsg"><label for="pmsg" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="pfyi"><label for="pfyi" style="color: var(--color-text); margin-left: 8px;"> FYI Only (No Events)</label></div><div class="mb-2"><input type="checkbox" id="pxmas"><label for="pxmas" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><button onclick="const dateInput = document.getElementById(\'pbday\').value; if(!dateInput) { alert(\'Please select a birthday\'); return; } const [y, m, d] = dateInput.split(\'-\'); const bdayStr = d + \'-\' + m; window.app.addPerson(document.getElementById(\'pname\').value, bdayStr, y, document.getElementById(\'plikes\').value, document.getElementById(\'pdislikes\').value, document.getElementById(\'pnotes\').value, document.getElementById(\'pmsg\').checked, document.getElementById(\'pfyi\').checked); document.getElementById(\'pxmas\').checked && window.app.updatePerson(window.app.people[window.app.people.length-1].id, {includeInChristmas: true});" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddPerson()" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
         }
-        const filtered = this.filterPeopleBySearch(this.getSortedPeople(), this.peopleSearchText);
+        const filtered = this.filterPeopleBySearch(this.getSortedPeople(), this.peopleSearchText).filter(p => {
+            // Filter by message/gift/fyi status
+            if (this.showPeopleMessage === 'message' && !p.messageOnly) return false;
+            if (this.showPeopleChristmas === 'christmas' && !p.includeInChristmas) return false;
+            if (this.showPeopleFYI === 'fyi' && !p.fyiOnly) return false;
+            return true;
+        });
         filtered.forEach(p => {
             const isExp = this.expandedPerson === p.id;
             const pgifts = this.getGiftsForPerson(p.fullName);
@@ -959,10 +1032,7 @@ class GiftTracker {
 
     renderEventsTab() {
         let html = '<input type="text" placeholder="Search events..." oninput="window.app.handleSearchInput(event)" onkeypress="window.app.handleSearchKeypress(event)" class="w-full mb-4 p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);" value="' + (this.eventsSearchText || '') + '">';
-        html += '<div class="mb-4"><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showEventType === 'upcoming' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' ? 'var(--color-primary-text)' : 'var(--color-text)') + ';">Upcoming</button><button onclick="window.app.showEventType = \'historic\'; window.app.showEventReady = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'historic' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'historic' ? 'var(--color-primary-text)' : 'var(--color-text)') + ';">Historic</button></div>';
-        if (this.showEventType === 'upcoming') {
-            html += '<div class="mb-4"><button onclick="window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showEventReady === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventReady === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + ';">All</button><button onclick="window.app.showEventReady = \'ready\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showEventReady === 'ready' ? 'var(--color-success)' : 'var(--color-secondary)') + '; color: ' + (this.showEventReady === 'ready' ? 'white' : 'var(--color-text)') + ';">Ready</button><button onclick="window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-4 py-2 rounded text-sm mr-2" style="background-color: ' + (this.showEventReady === 'todo' ? 'var(--color-warning)' : 'var(--color-secondary)') + '; color: ' + (this.showEventReady === 'todo' ? 'white' : 'var(--color-text)') + ';">To Do</button><button onclick="window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'completed\'; window.app.render()" class="px-4 py-2 rounded text-sm" style="background-color: ' + (this.showEventCompleted === 'completed' ? 'var(--color-success)' : 'var(--color-secondary)') + '; color: ' + (this.showEventCompleted === 'completed' ? 'white' : 'var(--color-text)') + ';">Completed</button></div>';
-        }
+        html += '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px; flex-wrap: wrap;"><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Upcoming">🔮</button><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'todo' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'todo' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="To Do">🟠</button><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'completed\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Completed">✅</button><button onclick="window.app.showEventType = \'historic\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Historic">🕰️</button></div>';
         if (this.addingEvent) {
             if (!this.eventType) {
                 html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><button onclick="window.app.selectEventType(\'birthday\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">Birthday</button><button onclick="window.app.selectEventType(\'christmas\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-accent);">Christmas</button><button onclick="window.app.selectEventType(\'custom\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary);">Custom Event</button><button onclick="window.app.toggleAddEvent()" class="w-full py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
@@ -1010,8 +1080,9 @@ class GiftTracker {
                 const person = e.personId ? this.people.find(p => p.id === e.personId) : null;
                 const isMessageOnly = person && person.messageOnly;
                 const allGiftsGifted = this.areAllEventGiftsGifted(e.id);
-                const borderColor = allGiftsGifted ? 'var(--color-success)' : 'var(--color-warning)';
-                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: ' + borderColor + '; display: block; overflow: visible;"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left" style="display: block; background: none; border: none; padding: 0; margin-bottom: 12px;"><h3 class="font-semibold" style="color: var(--color-text); margin: 0;">' + e.name + '</h3><p class="text-sm" style="color: var(--color-text-muted); margin: 4px 0 0 0;">' + (isMessageOnly ? '💬 Message Only' : 'Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus) + '</p></button>';
+                const borderColor = 'var(--color-border)';
+                const dateColor = this.getEventDateColor(e);
+                html += '<div class="mb-3 swipe-item" data-swipe-item data-event-id="' + e.id + '"><div class="swipe-item-content p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: ' + borderColor + '; display: block; overflow: visible;"><button onclick="window.app.expandEvent(' + e.id + ')" class="w-full text-left" style="display: block; background: none; border: none; padding: 0; margin-bottom: 12px;"><h3 class="font-semibold" style="color: var(--color-text); margin: 0;">' + e.name + ' <em style="font-style: italic; color: ' + dateColor + '; font-weight: normal;">' + this.formatDateOrdinal(e.date) + '</em></h3><p class="text-sm" style="color: var(--color-text-muted); margin: 4px 0 0 0;">' + (isMessageOnly ? '💬 Message Only' : 'Budget £' + e.budget.toFixed(2) + ' Spent £' + spent.toFixed(2) + ' Gifts ' + egifts.length + ' ' + budgetStatus) + '</p></button>';
                 if (isExp) {
                     html += '<div style="width: 100%; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border);">';
                     if (!isMessageOnly) {
