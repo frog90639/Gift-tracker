@@ -641,6 +641,14 @@ class GiftTracker {
     isEventUpcoming(e) { const p = e.date.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])) >= new Date(); }
     getSortedPeople() { return [...this.people].sort((a, b) => a.fullName.localeCompare(b.fullName)); }
     getGiftablePeople() { return this.getSortedPeople().filter(p => !p.fyiOnly); }
+    hasUnassignedPeople(event) {
+        if (!event.people || event.people.length === 0) return false;
+        return event.people.some(p => {
+            const assignedGifts = event.giftAssignments ? event.giftAssignments.filter(ga => ga.personName === p.name) : [];
+            return assignedGifts.length === 0;
+        });
+    }
+    
     getSortedEvents() { return [...this.events].sort((a, b) => { const [dA, mA, yA] = a.date.split('-'); const [dB, mB, yB] = b.date.split('-'); return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB)); }); }
     getMonthYear(dateStr) { if (!dateStr) return ''; const p = dateStr.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).toLocaleDateString('en-US', {month: 'long', year: 'numeric'}); }
     getTotalSpent() { return this.gifts.reduce((s, g) => s + g.price, 0); }
@@ -1163,7 +1171,7 @@ class GiftTracker {
                 searchInput.value = this.eventsSearchText || '';
             }
         }, 0);
-        html += '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px; flex-wrap: wrap;"><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Upcoming">🔮</button><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'todo' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'todo' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="To Do">🟠</button><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'completed\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Completed">✅</button><button onclick="window.app.showEventType = \'historic\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Historic">🕰️</button></div>';
+        html += '<div class="mb-4 flex gap-2" style="display: flex; gap: 8px; flex-wrap: wrap;"><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Upcoming">🔮</button><button onclick="window.app.showEventReady = \'todo\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventReady === 'todo' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventReady === 'todo' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="To Do (No gifts assigned)">🟠</button><button onclick="window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'completed\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'upcoming' && this.showEventReady === 'all' && this.showEventCompleted === 'completed' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Completed">✅</button><button onclick="window.app.showEventType = \'historic\'; window.app.showEventReady = \'all\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="px-3 py-2 rounded text-sm" style="background-color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showEventType === 'historic' && this.showEventReady === 'all' && this.showEventCompleted === 'all' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer; font-size: 20px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;" title="Historic">🕰️</button></div>';
         if (this.addingEvent) {
             if (!this.eventType) {
                 html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><button onclick="window.app.selectEventType(\'birthday\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">Birthday</button><button onclick="window.app.selectEventType(\'christmas\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-accent);">Christmas</button><button onclick="window.app.selectEventType(\'custom\')" class="w-full py-2 rounded mb-2 text-white" style="background-color: var(--color-primary);">Custom Event</button><button onclick="window.app.toggleAddEvent()" class="w-full py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
@@ -1190,6 +1198,15 @@ class GiftTracker {
                 return eventMatch || personMatch || peopleMatch || giftMatch;
             });
         }
+        // Apply the showEventReady filter (🟠 button) for both upcoming and historic events
+        if (this.showEventReady === 'todo') {
+            events = events.filter(e => {
+                // Show events that have unassigned people OR are message-only without gifts
+                const hasUnassigned = this.hasUnassignedPeople(e);
+                const isMessageOnly = e.messages !== undefined;
+                return hasUnassigned || isMessageOnly;
+            });
+        }
         if (this.showEventType === 'upcoming') {
             events = events.filter(e => {
                 if (this.showEventCompleted === 'completed') {
@@ -1198,9 +1215,8 @@ class GiftTracker {
                     return true;
                 } else if (this.showEventReady === 'ready') {
                     return this.isEventReady(e);
-                } else if (this.showEventReady === 'todo') {
-                    return !this.isEventReady(e);
                 }
+                return true;
             });
         }
         const eventsByMonth = {};
@@ -1585,4 +1601,3 @@ window.app = new GiftTracker();
     </script>
 </body>
 </html>
-
