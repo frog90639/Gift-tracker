@@ -335,7 +335,8 @@ class GiftTracker {
         if (parts.length !== 3) return alert('Date must be DD-MM-YYYY');
         const pid = person ? parseInt(person) : null;
         const pname = pid ? (this.people.find(p => p.id === pid)?.fullName || '') : '';
-        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'custom', name: name, date: parts[0] + '-' + parts[1] + '-' + parts[2], totalBudget: parseFloat(budget) || 0, notes: '', personId: pid, personName: pname, year: parseInt(parts[2]), people: pid ? [{name: pname, budget: parseFloat(budget) || 0}] : [], giftIds: [], giftAssignments: [] });
+        const peopleArray = pid ? [{name: pname, budget: parseFloat(budget) || 0}] : [];
+        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'custom', name: name, date: parts[0] + '-' + parts[1] + '-' + parts[2], totalBudget: parseFloat(budget) || 0, notes: '', year: parseInt(parts[2]), people: peopleArray, giftIds: [], giftAssignments: [] });
         this.addingEvent = false; this.eventType = null; this.saveData(); this.render();
     }
     getYearDropdown() { const y = new Date().getFullYear(); let s = '<option value="' + y + '" selected>' + y + ' (Current)</option>'; for (let i = y - 7; i < y; i++) s += '<option value="' + i + '">' + i + '</option>'; for (let i = y + 1; i <= y + 5; i++) s += '<option value="' + i + '">' + i + '</option>'; return s; }
