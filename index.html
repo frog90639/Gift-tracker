@@ -46,6 +46,13 @@ class GiftTracker {
         this.gifts = data?.gifts || [];
         this.shops = data?.shops || [];
         
+        // Ensure all events have giftAssignments property
+        this.events.forEach(e => {
+            if (!e.giftAssignments) {
+                e.giftAssignments = [];
+            }
+        });
+        
         // Sync person budgets in birthday events from person's default birthday budget
         this.events.forEach(e => {
             if (e.type === 'birthday' && e.people && e.people.length > 0) {
@@ -328,7 +335,7 @@ class GiftTracker {
         if (parts.length !== 3) return alert('Date must be DD-MM-YYYY');
         const pid = person ? parseInt(person) : null;
         const pname = pid ? (this.people.find(p => p.id === pid)?.fullName || '') : '';
-        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'custom', name: name, date: parts[0] + '-' + parts[1] + '-' + parts[2], budget: parseFloat(budget) || 0, notes: '', personId: pid, personName: pname, year: parseInt(parts[2]), people: pid ? [{name: pname, budget: 0}] : [], giftIds: [] });
+        this.events.push({ id: Math.max(...this.events.map(e => e.id), 0) + 1, type: 'custom', name: name, date: parts[0] + '-' + parts[1] + '-' + parts[2], totalBudget: parseFloat(budget) || 0, notes: '', personId: pid, personName: pname, year: parseInt(parts[2]), people: pid ? [{name: pname, budget: parseFloat(budget) || 0}] : [], giftIds: [], giftAssignments: [] });
         this.addingEvent = false; this.eventType = null; this.saveData(); this.render();
     }
     getYearDropdown() { const y = new Date().getFullYear(); let s = '<option value="' + y + '" selected>' + y + ' (Current)</option>'; for (let i = y - 7; i < y; i++) s += '<option value="' + i + '">' + i + '</option>'; for (let i = y + 1; i <= y + 5; i++) s += '<option value="' + i + '">' + i + '</option>'; return s; }
@@ -487,15 +494,6 @@ class GiftTracker {
             this.saveData();
             this.render();
         }
-    }
-    removeGiftFromEvent(eid, gid) { 
-        const e = this.events.find(x => x.id === eid); 
-        if (e) { 
-            if (e.giftAssignments) e.giftAssignments = e.giftAssignments.filter(ga => ga.giftId !== gid);
-            if (e.giftIds) e.giftIds = e.giftIds.filter(id => id !== gid); 
-            this.saveData(); 
-            this.render(); 
-        } 
     }
     addMessageToEvent(eid, personName) {
         if (!personName) return alert('Person name required');
@@ -1180,7 +1178,7 @@ class GiftTracker {
             } else if (this.eventType === 'christmas') {
                 html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><select id="cyear" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option>Select Year</option>' + this.getYearDropdown() + '</select><input type="number" id="cbudget" placeholder="Budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><button onclick="window.app.addChristmasEvent(document.getElementById(&#39;cyear&#39;).value, document.getElementById(&#39;cbudget&#39;).value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-accent);">Add</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             } else if (this.eventType === 'custom') {
-                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Create Custom Event</h3><input type="text" id="cename" placeholder="Event name (e.g. Father\'s Day)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="text" id="cedate" placeholder="Date (DD-MM-YYYY)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="number" id="cebudget" placeholder="Budget (optional)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><select id="ceperson" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getSortedPeople().map(p => '<option value="' + p.id + '">' + p.fullName + '</option>').join('') + '</select><button onclick="window.app.addCustomEvent(document.getElementById(&#39;cename&#39;).value, document.getElementById(&#39;cedate&#39;).value, document.getElementById(&#39;cebudget&#39;).value, document.getElementById(&#39;ceperson&#39;).value)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add Event</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Create Custom Event</h3><input type="text" id="cename" placeholder="Event name (e.g. Father\'s Day)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Date</label><input type="date" id="cedate" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><input type="number" id="cebudget" placeholder="Budget (optional)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><select id="ceperson" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getSortedPeople().map(p => '<option value="' + p.id + '">' + p.fullName + '</option>').join('') + '</select><button onclick="const dateInput = document.getElementById(\'cedate\').value; if(!dateInput) { alert(\'Please select a date\'); return; } const [y, m, d] = dateInput.split(\'-\'); window.app.addCustomEvent(document.getElementById(\'cename\').value, d + \'-\' + m + \'-\' + y, document.getElementById(\'cebudget\').value, document.getElementById(\'ceperson\').value);" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add Event</button><button onclick="window.app.toggleAddEvent()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             }
         }
         let events = this.getSortedEvents().filter(e => this.showEventType === 'upcoming' ? this.isEventUpcoming(e) : !this.isEventUpcoming(e));
