@@ -1298,6 +1298,7 @@ class GiftTracker {
             }
         }
         let events = this.getSortedEvents().filter(e => this.showEventType === 'upcoming' ? this.isEventUpcoming(e) : !this.isEventUpcoming(e));
+        if (this.showEventType === 'historic') events.reverse();
         // Apply search filter - search by event name, person name, or gift name
         if (this.eventsSearchText) {
             const searchLower = this.eventsSearchText.toLowerCase();
