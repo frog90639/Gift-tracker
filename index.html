@@ -45,6 +45,7 @@ class GiftTracker {
         this.events = data?.events || [];
         this.gifts = data?.gifts || [];
         this.shops = data?.shops || [];
+        this.receivedGifts = data?.receivedGifts || [];
         
         // Ensure all events have giftAssignments property
         this.events.forEach(e => {
@@ -70,17 +71,22 @@ class GiftTracker {
         this.expandedPerson = null;
         this.expandedEvent = null;
         this.expandedGift = null;
+        this.expandedReceivedGift = null;
         this.editingPerson = null;
         this.editingEvent = null;
         this.editingGift = null;
+        this.editingReceivedGift = null;
         this.addingPerson = false;
         this.addingEvent = false;
         this.addingGift = false;
+        this.addingReceivedGift = false;
         this.eventType = null;
         this.newGiftEventId = null;
         this.newGiftPersonName = null;
         this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' };
+        this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: null, price: '', notes: '', thankYouSent: false };
         this.showGiftStatus = 'all';
+        this.showGiftsView = 'given';
         this.showEventType = 'upcoming';
         this.showEventReady = 'all';
         this.showEventCompleted = 'all';
@@ -96,7 +102,7 @@ class GiftTracker {
         this.render();
     }
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
-    saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops})); } catch(e) {} }
+    saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts})); } catch(e) {} }
     initSwipeHandlers() {
         setTimeout(() => {
             document.querySelectorAll('[data-swipe-item]').forEach(el => {
@@ -229,6 +235,16 @@ class GiftTracker {
             const personMatch = g.personName && g.personName.toLowerCase().includes(lowerSearch);
             const eventMatch = g.eventId && this.events.find(e => e.id === g.eventId && e.name.toLowerCase().includes(lowerSearch));
             return nameMatch || personMatch || eventMatch;
+        });
+    }
+    filterReceivedGiftsBySearch(gifts, searchText) {
+        if (!searchText) return gifts;
+        const lowerSearch = searchText.toLowerCase().trim();
+        return gifts.filter(g => {
+            const nameMatch = g.giftName.toLowerCase().includes(lowerSearch);
+            const fromMatch = g.fromPersonName && g.fromPersonName.toLowerCase().includes(lowerSearch);
+            const eventMatch = g.eventId && this.events.find(e => e.id === g.eventId && e.name.toLowerCase().includes(lowerSearch));
+            return nameMatch || fromMatch || eventMatch;
         });
     }
     toggleAddPerson() { this.addingPerson = !this.addingPerson; this.render(); }
@@ -387,7 +403,7 @@ class GiftTracker {
         this.render();
     }
     updateEvent(id, updates) { const e = this.events.find(x => x.id === id); if (e) Object.assign(e, updates); this.saveData(); this.render(); }
-    deleteEvent(id) { this.events = this.events.filter(e => e.id !== id); this.gifts.forEach(g => { if (g.eventId === id) g.eventId = null; }); this.saveData(); this.render(); }
+    deleteEvent(id) { this.events = this.events.filter(e => e.id !== id); this.gifts.forEach(g => { if (g.eventId === id) g.eventId = null; }); this.receivedGifts.forEach(g => { if (g.eventId === id) g.eventId = null; }); this.saveData(); this.render(); }
     expandEvent(id) { this.expandedEvent = this.expandedEvent === id ? null : id; this.editingEvent = null; this.render(); }
     toggleEditEvent(id) { this.editingEvent = this.editingEvent === id ? null : id; this.render(); }
     isEventReady(e) { return this.getGiftsForEvent(e.id).some(g => ['bought', 'wrapped', 'gifted'].includes(g.status)); }
@@ -536,6 +552,13 @@ class GiftTracker {
         return '<span style="background-color: #D5E8E0; color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Within budget</span>';
     }
     toggleAddGift() { this.addingGift = !this.addingGift; this.newGiftEventId = null; this.newGiftPersonName = null; this.render(); }
+    toggleAddReceivedGift(eventId) {
+        this.addingReceivedGift = !this.addingReceivedGift;
+        if (this.addingReceivedGift) {
+            this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: eventId || null, price: '', notes: '', thankYouSent: false };
+        }
+        this.render();
+    }
     addShop(shopName) {
         if (!shopName || !shopName.trim()) return;
         const trimmed = shopName.trim();
@@ -632,6 +655,80 @@ class GiftTracker {
     getGiftsForEvent(eid) { return this.gifts.filter(g => g.eventId === eid); }
     getGiftsForPerson(name) { return this.gifts.filter(g => g.personName === name); }
     getGiftsForEventAndPerson(eid, name) { return this.gifts.filter(g => g.eventId === eid && g.personName === name); }
+    getReceivedGiftsForEvent(eid) { return this.receivedGifts.filter(g => g.eventId === eid); }
+    getReceivedGiftsForPerson(name) { return this.receivedGifts.filter(g => g.fromPersonName === name); }
+    addReceivedGift(giftName, fromPersonName, fromPersonFreeText, eventId, price, notes, thankYouSent) {
+        if (!giftName) return alert('Enter gift name');
+        let fromName = fromPersonName || fromPersonFreeText;
+        if (!fromName) return alert('Enter who gave this gift');
+        let fromPersonId = null;
+        if (fromPersonName) {
+            const p = this.people.find(x => x.fullName === fromPersonName);
+            if (p) fromPersonId = p.id;
+        } else if (fromPersonFreeText) {
+            // Auto-link if the typed name exactly matches an existing person
+            const p = this.people.find(x => x.fullName.toLowerCase() === fromPersonFreeText.trim().toLowerCase());
+            if (p) { fromPersonId = p.id; fromName = p.fullName; }
+        }
+        const gid = Math.max(...this.receivedGifts.map(g => g.id), 0) + 1;
+        this.receivedGifts.push({ id: gid, giftName: giftName, eventId: eventId ? parseInt(eventId) : null, fromPersonName: fromName, fromPersonId: fromPersonId, price: parseFloat(price) || 0, notes: notes || '', thankYouSent: thankYouSent || false, dateReceived: new Date().toISOString().split('T')[0] });
+        this.addingReceivedGift = false;
+        this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: null, price: '', notes: '', thankYouSent: false };
+        this.saveData(); this.render();
+    }
+    updateReceivedGift(id, updates) { const g = this.receivedGifts.find(x => x.id === id); if (g) Object.assign(g, updates); this.saveData(); this.render(); }
+    deleteReceivedGift(id) { this.receivedGifts = this.receivedGifts.filter(g => g.id !== id); this.saveData(); this.render(); }
+    expandReceivedGift(id) { this.expandedReceivedGift = this.expandedReceivedGift === id ? null : id; this.editingReceivedGift = null; this.render(); }
+    toggleEditReceivedGift(id) { this.editingReceivedGift = this.editingReceivedGift === id ? null : id; this.render(); }
+    toggleReceivedThankYou(id) { const g = this.receivedGifts.find(x => x.id === id); if (g) { g.thankYouSent = !g.thankYouSent; this.saveData(); this.render(); } }
+    renderReceivedGiftForm() {
+        const state = this.receivedGiftFormState;
+        let html = '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Received Gift</h3>';
+        html += '<input type="text" id="rgname" placeholder="Gift name" value="' + state.giftName + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.giftName = this.value">';
+        html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="rgfrom" onchange="window.app.receivedGiftFormState.fromPersonName = this.value; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select from People --</option>' + this.getSortedPeople().map(p => '<option value="' + p.fullName + '"' + (state.fromPersonName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '<option value="__other__"' + (state.fromPersonName === '__other__' ? ' selected' : '') + '>Someone else (type name)</option></select>';
+        if (state.fromPersonName === '__other__') {
+            html += '<input type="text" id="rgfromtext" placeholder="Their name" value="' + (state.fromPersonFreeText || '') + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.fromPersonFreeText = this.value">';
+        }
+        html += '<select id="rgevent" onchange="window.app.receivedGiftFormState.event = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (state.event == e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>';
+        html += '<input type="number" id="rgprice" placeholder="Value / Price (optional)" value="' + state.price + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.price = this.value">';
+        html += '<textarea id="rgnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.notes = this.value">' + state.notes + '</textarea>';
+        html += '<div class="mb-2"><input type="checkbox" id="rgthanks" ' + (state.thankYouSent ? 'checked' : '') + ' onchange="window.app.receivedGiftFormState.thankYouSent = this.checked"><label for="rgthanks" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>';
+        html += '<button onclick="const fromSel = document.getElementById(\'rgfrom\').value; const fromText = fromSel === \'__other__\' ? document.getElementById(\'rgfromtext\').value : \'\'; window.app.addReceivedGift(document.getElementById(\'rgname\').value, fromSel === \'__other__\' ? \'\' : fromSel, fromText, document.getElementById(\'rgevent\').value, document.getElementById(\'rgprice\').value, document.getElementById(\'rgnotes\').value, document.getElementById(\'rgthanks\').checked)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
+        html += '<button onclick="window.app.addingReceivedGift = false; window.app.render()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button>';
+        html += '</div>';
+        return html;
+    }
+    renderReceivedGiftItem(g) {
+        const isExp = this.expandedReceivedGift === g.id;
+        const isEdit = this.editingReceivedGift === g.id;
+        const event = g.eventId ? this.events.find(e => e.id === g.eventId) : null;
+        const isLinked = this.people.find(p => p.fullName === g.fromPersonName);
+        let html = '<div class="mb-3 swipe-item" data-swipe-item data-received-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandReceivedGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">📥 ' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">From ' + g.fromPersonName + (isLinked ? ' 🔗' : '') + (g.price ? ' • £' + g.price.toFixed(2) : '') + ' • ' + (g.thankYouSent ? '✅ Thanked' : '✉️ Not thanked') + '</p></button>';
+        if (isExp) {
+            if (isEdit) {
+                html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">'
+                    + '<input type="text" id="erg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                    + '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="erg_from_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select Person --</option>' + this.getSortedPeople().map(p => '<option value="' + p.fullName + '"' + (g.fromPersonName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '<option value="__other__"' + (!isLinked ? ' selected' : '') + '>Someone else</option></select>'
+                    + '<input type="text" id="erg_fromtext_' + g.id + '" value="' + (!isLinked ? g.fromPersonName : '') + '" placeholder="Their name (if someone else)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                    + '<select id="erg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>'
+                    + '<input type="number" id="erg_price_' + g.id + '" value="' + g.price + '" placeholder="Value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                    + '<textarea id="erg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + g.notes + '</textarea>'
+                    + '<div class="mb-2"><input type="checkbox" id="erg_thanks_' + g.id + '" ' + (g.thankYouSent ? 'checked' : '') + '><label for="erg_thanks_' + g.id + '" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>'
+                    + '<button onclick="const fromSel = document.getElementById(\'erg_from_' + g.id + '\').value; const fromName = fromSel === \'__other__\' ? document.getElementById(\'erg_fromtext_' + g.id + '\').value : fromSel; const matchedPerson = window.app.people.find(p => p.fullName === fromName); window.app.updateReceivedGift(' + g.id + ', {giftName: document.getElementById(\'erg_name_' + g.id + '\').value, fromPersonName: fromName, fromPersonId: matchedPerson ? matchedPerson.id : null, eventId: parseInt(document.getElementById(\'erg_event_' + g.id + '\').value) || null, price: parseFloat(document.getElementById(\'erg_price_' + g.id + '\').value) || 0, notes: document.getElementById(\'erg_notes_' + g.id + '\').value, thankYouSent: document.getElementById(\'erg_thanks_' + g.id + '\').checked}); window.app.editingReceivedGift = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button>'
+                    + '<button onclick="window.app.toggleEditReceivedGift(' + g.id + ')" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button>'
+                    + '</div>';
+            } else {
+                html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">';
+                html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Event</p><p style="color: var(--color-text);">' + (event ? event.name : 'No event') + '</p></div>';
+                html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">From</p><p style="color: var(--color-text);">' + g.fromPersonName + (isLinked ? ' (linked to People)' : ' (not in People)') + '</p></div>';
+                if (g.notes) html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Notes</p><p style="color: var(--color-text);">' + g.notes + '</p></div>';
+                html += '<div class="mb-2"><input type="checkbox" id="rgt_' + g.id + '" ' + (g.thankYouSent ? 'checked' : '') + ' onchange="window.app.toggleReceivedThankYou(' + g.id + ')"><label for="rgt_' + g.id + '" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>';
+                html += '</div>';
+            }
+        }
+        html += '</div></div><div class="swipe-edit" onclick="window.app.expandReceivedGift(' + g.id + '); window.app.editingReceivedGift = ' + g.id + '; window.app.render();">Edit</div><div class="swipe-delete" onclick="window.app.deleteReceivedGift(' + g.id + ')">Delete</div></div>';
+        return html;
+    }
     areAllEventGiftsGifted(eid) { 
         const gifts = this.getGiftsForEvent(eid);
         if (gifts.length === 0) return false;
@@ -722,6 +819,14 @@ class GiftTracker {
                     csv += escapeCSV(e.id) + ',' + escapeCSV(e.name) + ',' + escapeCSV(ga.giftId) + ',' + escapeCSV(giftName) + ',' + escapeCSV(ga.personName) + '\n';
                 });
             }
+        });
+        
+        csv += '\n=== RECEIVED GIFTS ===\n';
+        csv += 'ID,Gift Name,From Person,Linked Person ID,Event ID,Event Name,Price,Thank You Sent,Date Received,Notes\n';
+        this.receivedGifts.forEach(g => {
+            const event = this.events.find(e => e.id === g.eventId);
+            const eventName = event ? event.name : '';
+            csv += escapeCSV(g.id) + ',' + escapeCSV(g.giftName) + ',' + escapeCSV(g.fromPersonName) + ',' + escapeCSV(g.fromPersonId || '') + ',' + escapeCSV(g.eventId || '') + ',' + escapeCSV(eventName) + ',' + escapeCSV(g.price) + ',' + (g.thankYouSent ? 'Yes' : 'No') + ',' + escapeCSV(g.dateReceived || '') + ',' + escapeCSV(g.notes || '') + '\n';
         });
         
         const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
@@ -1154,6 +1259,16 @@ class GiftTracker {
                         });
                         html += '</div>';
                     }
+                    const preceived = this.getReceivedGiftsForPerson(p.fullName);
+                    if (preceived.length > 0) {
+                        const receivedTotal = preceived.reduce((s, g) => s + g.price, 0);
+                        html += '<div class="p-2 rounded border mb-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-2" style="color: var(--color-text-muted);">GIFTS RECEIVED FROM THEM (£' + receivedTotal.toFixed(2) + ')</p>';
+                        preceived.forEach(g => {
+                            const event = this.events.find(e => e.id === g.eventId);
+                            html += '<div style="color: var(--color-text);">• ' + g.giftName + ' £' + g.price.toFixed(2) + ' (' + (event ? event.name : 'No event') + ')' + (g.thankYouSent ? ' ✅' : ' ✉️') + '</div>';
+                        });
+                        html += '</div>';
+                    }
                 }
             }
             html += '</div></div><div class="swipe-edit" onclick="window.app.expandPerson(' + p.id + '); window.app.editingPerson = ' + p.id + '; window.app.render();">Edit</div><div class="swipe-delete" onclick="window.app.deletePerson(' + p.id + ')">Delete</div></div>';
@@ -1315,6 +1430,19 @@ class GiftTracker {
                     if (isMessageOnly) {
                         html += '<div class="flex items-center p-2 rounded mb-2" style="background-color: var(--color-secondary);"><input type="checkbox" id="msg_check_' + e.id + '" ' + (e.messaged ? 'checked' : '') + ' onchange="window.app.updateEvent(' + e.id + ', {messaged: this.checked})" style="cursor: pointer;"><label for="msg_check_' + e.id + '" style="color: var(--color-text); margin-left: 8px; cursor: pointer;"> Messaged</label></div>';
                     }
+
+                    // Received Gifts section (works for all event types)
+                    html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-border);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><p style="color: var(--color-text); font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0;">📥 Received Gifts</p><button onclick="window.app.toggleAddReceivedGift(' + e.id + ')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">+</button></div>';
+                    const eventReceivedGifts = this.getReceivedGiftsForEvent(e.id);
+                    if (eventReceivedGifts.length === 0) {
+                        html += '<p style="color: var(--color-text-muted); font-size: 12px;">No received gifts logged yet</p>';
+                    } else {
+                        eventReceivedGifts.forEach(rg => { html += this.renderReceivedGiftItem(rg); });
+                    }
+                    if (this.addingReceivedGift && this.receivedGiftFormState.event == e.id) {
+                        html += this.renderReceivedGiftForm();
+                    }
+                    html += '</div>';
                     
                     // Show edit button or edit form
                     const isEditing = this.editingEvent === e.id;
@@ -1343,6 +1471,8 @@ class GiftTracker {
                 searchInput.value = this.giftsSearchText || '';
             }
         }, 0);
+        html += '<div class="mb-4" style="display: flex; gap: 8px;"><button onclick="window.app.showGiftsView = \'given\'; window.app.render()" class="flex-1 py-2 rounded text-sm font-medium" style="background-color: ' + (this.showGiftsView === 'given' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showGiftsView === 'given' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer;">🎁 Given</button><button onclick="window.app.showGiftsView = \'received\'; window.app.render()" class="flex-1 py-2 rounded text-sm font-medium" style="background-color: ' + (this.showGiftsView === 'received' ? 'var(--color-primary)' : 'var(--color-secondary)') + '; color: ' + (this.showGiftsView === 'received' ? 'var(--color-primary-text)' : 'var(--color-text)') + '; border: none; cursor: pointer;">📥 Received</button></div>';
+        if (this.showGiftsView === 'given') {
         if (this.addingGift) {
             const selectedPerson = this.giftFormState.person;
             const personEvents = selectedPerson ? this.events.filter(e => {
@@ -1390,6 +1520,18 @@ class GiftTracker {
             }
             html += '</div></div><div class="swipe-edit" onclick="window.app.expandGift(' + g.id + '); window.app.editingGift = ' + g.id + '; window.app.render();">Edit</div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
         });
+        } else {
+            // Received gifts view
+            if (this.addingReceivedGift) {
+                html += this.renderReceivedGiftForm();
+            }
+            const filteredReceived = this.filterReceivedGiftsBySearch(this.receivedGifts, this.giftsSearchText);
+            if (filteredReceived.length === 0) {
+                html += '<p style="color: var(--color-text-muted); font-size: 14px; text-align: center; padding: 20px 0;">No received gifts logged yet</p>';
+            } else {
+                filteredReceived.forEach(g => { html += this.renderReceivedGiftItem(g); });
+            }
+        }
         return html;
     }
 
@@ -1453,6 +1595,8 @@ class GiftTracker {
         const {purchased, unpurchased, total} = this.getPurchasedVsUnpurchased();
         const birthdays = this.events.filter(e => e.type === 'birthday').length;
         const christmas = this.events.filter(e => e.type === 'christmas').length;
+        const totalReceived = this.receivedGifts.reduce((s, g) => s + g.price, 0);
+        const thankedCount = this.receivedGifts.filter(g => g.thankYouSent).length;
         
         let html = '<div class="grid grid-cols-2 gap-3 mb-4">';
         html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent); text-transform: uppercase;">Total Spent</p><p class="text-2xl font-bold" style="color: var(--color-text);">£' + totalSpent.toFixed(2) + '</p></div>';
@@ -1461,6 +1605,11 @@ class GiftTracker {
         html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Christmas</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + christmas + '</p></div>';
         html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-primary); text-transform: uppercase;">Avg Birthday</p><p class="text-xl font-bold" style="color: var(--color-text);">£' + avgBday + '</p></div>';
         html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-success); text-transform: uppercase;">Avg Christmas</p><p class="text-xl font-bold" style="color: var(--color-text);">£' + avgXmas + '</p></div>';
+        html += '</div>';
+
+        html += '<div class="grid grid-cols-2 gap-3 mb-4">';
+        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent); text-transform: uppercase;">Total Received</p><p class="text-2xl font-bold" style="color: var(--color-text);">£' + totalReceived.toFixed(2) + '</p></div>';
+        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Thank Yous Sent</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + thankedCount + ' / ' + this.receivedGifts.length + '</p></div>';
         html += '</div>';
         
         html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Purchase Status</p><div class="flex items-center justify-between mb-2"><span style="color: var(--color-text);">Purchased</span><span class="font-bold" style="color: var(--color-success);">✓ ' + purchased + '</span></div><div class="flex items-center justify-between mb-3"><span style="color: var(--color-text);">Not Purchased</span><span class="font-bold" style="color: var(--color-warning);">○ ' + unpurchased + '</span></div><div class="w-full rounded-full h-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (total > 0 ? (purchased / total * 100) : 0) + '%; background-color: var(--color-success);"></div></div></div>';
@@ -1589,7 +1738,7 @@ class GiftTracker {
         else if (this.currentTab === 'gifts') content = this.renderGiftsTab();
         else if (this.currentTab === 'reporting') content = this.renderReportingTab();
 
-        const html = '<div style="background-color: var(--color-bg); min-height: 100vh;"><div class="sticky top-0 z-50" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border);"><div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><div class="flex items-center gap-2"><h1 class="text-2xl font-bold" style="color: var(--color-text);">Gift Tracker</h1></div><div class="flex gap-2"><button onclick="window.app.toggleSettings()" class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-secondary); color: var(--color-text);">⚙️</button><button onclick="' + (this.currentTab === 'events' ? 'window.app.toggleAddEvent()' : (this.currentTab === 'people' ? 'window.app.toggleAddPerson()' : (this.currentTab === 'gifts' ? 'window.app.toggleAddGift()' : null))) + '" class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div></div>' + (this.showSettings ? this.renderSettings() : '') + '<div class="max-w-4xl mx-auto px-4 flex gap-2 border-t overflow-x-auto" style="border-color: var(--color-border);"><button onclick="window.app.currentTab = \'events\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'transparent') + ';">Events</button><button onclick="window.app.currentTab = \'people\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'transparent') + ';">People</button><button onclick="window.app.currentTab = \'gifts\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'transparent') + ';">Gifts</button><button onclick="window.app.currentTab = \'reporting\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'transparent') + ';">Reporting</button></div></div><div class="max-w-4xl mx-auto px-4 py-6 pb-20">' + content + '</div></div>';
+        const html = '<div style="background-color: var(--color-bg); min-height: 100vh;"><div class="sticky top-0 z-50" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border);"><div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between"><div class="flex items-center gap-2"><h1 class="text-2xl font-bold" style="color: var(--color-text);">Gift Tracker</h1></div><div class="flex gap-2"><button onclick="window.app.toggleSettings()" class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-secondary); color: var(--color-text);">⚙️</button><button onclick="' + (this.currentTab === 'events' ? 'window.app.toggleAddEvent()' : (this.currentTab === 'people' ? 'window.app.toggleAddPerson()' : (this.currentTab === 'gifts' ? (this.showGiftsView === 'given' ? 'window.app.toggleAddGift()' : 'window.app.toggleAddReceivedGift()') : null))) + '" class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div></div>' + (this.showSettings ? this.renderSettings() : '') + '<div class="max-w-4xl mx-auto px-4 flex gap-2 border-t overflow-x-auto" style="border-color: var(--color-border);"><button onclick="window.app.currentTab = \'events\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'events' ? 'var(--color-primary)' : 'transparent') + ';">Events</button><button onclick="window.app.currentTab = \'people\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'people' ? 'var(--color-primary)' : 'transparent') + ';">People</button><button onclick="window.app.currentTab = \'gifts\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'gifts' ? 'var(--color-primary)' : 'transparent') + ';">Gifts</button><button onclick="window.app.currentTab = \'reporting\'; window.app.render()" class="py-3 px-4 font-medium text-sm whitespace-nowrap" style="color: ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'var(--color-text-muted)') + '; border-bottom: 2px solid ' + (this.currentTab === 'reporting' ? 'var(--color-primary)' : 'transparent') + ';">Reporting</button></div></div><div class="max-w-4xl mx-auto px-4 py-6 pb-20">' + content + '</div></div>';
 
         document.getElementById('app').innerHTML = html;
         this.initSwipeHandlers();
