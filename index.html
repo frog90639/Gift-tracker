@@ -46,6 +46,23 @@ class GiftTracker {
         this.gifts = data?.gifts || [];
         this.shops = data?.shops || [];
         this.receivedGifts = data?.receivedGifts || [];
+        this.otherGivers = data?.otherGivers || [];
+        
+        // Migrate any legacy received-gift records (fromPersonName/fromPersonId) to the
+        // new giverType/giverId model, which stores a reference rather than a frozen name
+        // so renames/merges cascade automatically.
+        this.receivedGifts.forEach(rg => {
+            if (!rg.giverType) {
+                if (rg.fromPersonId) {
+                    rg.giverType = 'person'; rg.giverId = rg.fromPersonId;
+                } else if (rg.fromPersonName) {
+                    const resolved = this.findOrCreateGiverByName(rg.fromPersonName, false);
+                    if (resolved) { rg.giverType = resolved.giverType; rg.giverId = resolved.giverId; }
+                }
+                delete rg.fromPersonName;
+                delete rg.fromPersonId;
+            }
+        });
         
         // Ensure all events have giftAssignments property
         this.events.forEach(e => {
@@ -84,7 +101,7 @@ class GiftTracker {
         this.newGiftEventId = null;
         this.newGiftPersonName = null;
         this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' };
-        this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: null, price: '', notes: '', thankYouSent: false };
+        this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: null, price: '', notes: '', thankYouSent: false };
         this.showGiftStatus = 'all';
         this.showGiftsView = 'given';
         this.showEventType = 'upcoming';
@@ -102,7 +119,7 @@ class GiftTracker {
         this.render();
     }
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
-    saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts})); } catch(e) {} }
+    saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers})); } catch(e) {} }
     initSwipeHandlers() {
         setTimeout(() => {
             document.querySelectorAll('[data-swipe-item]').forEach(el => {
@@ -242,7 +259,7 @@ class GiftTracker {
         const lowerSearch = searchText.toLowerCase().trim();
         return gifts.filter(g => {
             const nameMatch = g.giftName.toLowerCase().includes(lowerSearch);
-            const fromMatch = g.fromPersonName && g.fromPersonName.toLowerCase().includes(lowerSearch);
+            const fromMatch = this.getGiverInfo(g).name.toLowerCase().includes(lowerSearch);
             const eventMatch = g.eventId && this.events.find(e => e.id === g.eventId && e.name.toLowerCase().includes(lowerSearch));
             return nameMatch || fromMatch || eventMatch;
         });
@@ -555,7 +572,7 @@ class GiftTracker {
     toggleAddReceivedGift(eventId) {
         this.addingReceivedGift = !this.addingReceivedGift;
         if (this.addingReceivedGift) {
-            this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: eventId || null, price: '', notes: '', thankYouSent: false };
+            this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: eventId || null, price: '', notes: '', thankYouSent: false };
         }
         this.render();
     }
@@ -656,24 +673,168 @@ class GiftTracker {
     getGiftsForPerson(name) { return this.gifts.filter(g => g.personName === name); }
     getGiftsForEventAndPerson(eid, name) { return this.gifts.filter(g => g.eventId === eid && g.personName === name); }
     getReceivedGiftsForEvent(eid) { return this.receivedGifts.filter(g => g.eventId === eid); }
-    getReceivedGiftsForPerson(name) { return this.receivedGifts.filter(g => g.fromPersonName === name); }
-    addReceivedGift(giftName, fromPersonName, fromPersonFreeText, eventId, price, notes, thankYouSent) {
+    isReceivedGiftsRelevantEvent(e) {
+        // Only show the Received Gifts panel for events involving people whose name
+        // is (or contains, as a whole word) "Me" or "Adam" - matches whole words only
+        // so names like "Amelia", "James", or "Emerson" aren't accidentally caught.
+        const matches = (name) => /\b(me|adam)\b/i.test(name || '');
+        if (e.personId) {
+            const p = this.people.find(x => x.id === e.personId);
+            if (p && matches(p.fullName)) return true;
+        }
+        if (e.people && e.people.some(p => matches(p.name))) return true;
+        return false;
+    }
+    getReceivedGiftsForPerson(personId) { return this.receivedGifts.filter(g => g.giverType === 'person' && g.giverId === personId); }
+    normalizeName(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+    getGiverInfo(g) {
+        if (g.giverType === 'person') {
+            const p = this.people.find(x => x.id === g.giverId);
+            return { name: p ? p.fullName : '(deleted person)', type: 'person', exists: !!p };
+        } else if (g.giverType === 'other') {
+            const o = this.otherGivers.find(x => x.id === g.giverId);
+            return { name: o ? o.name : '(deleted giver)', type: 'other', exists: !!o };
+        }
+        return { name: 'Unknown', type: null, exists: false };
+    }
+    findOrCreateGiverByName(name, interactive) {
+        const norm = this.normalizeName(name);
+        if (!norm) return null;
+        const person = this.people.find(p => this.normalizeName(p.fullName) === norm);
+        if (person) return { giverType: 'person', giverId: person.id };
+        const giver = this.otherGivers.find(g => this.normalizeName(g.name) === norm);
+        if (giver) return { giverType: 'other', giverId: giver.id };
+        if (interactive) {
+            const candidates = [
+                ...this.people.map(p => ({ type: 'person', id: p.id, name: p.fullName })),
+                ...this.otherGivers.map(g => ({ type: 'other', id: g.id, name: g.name }))
+            ].filter(c => {
+                const cn = this.normalizeName(c.name);
+                return cn.includes(norm) || norm.includes(cn);
+            });
+            if (candidates.length > 0) {
+                const useExisting = confirm('A similar name already exists: "' + candidates[0].name + '".\n\nOK = use "' + candidates[0].name + '"\nCancel = create a new entry for "' + name.trim() + '"');
+                if (useExisting) return { giverType: candidates[0].type, giverId: candidates[0].id };
+            }
+        }
+        const newId = Math.max(...this.otherGivers.map(g => g.id), 0) + 1;
+        this.otherGivers.push({ id: newId, name: name.trim() });
+        return { giverType: 'other', giverId: newId };
+    }
+    renameOtherGiver(id) {
+        const giver = this.otherGivers.find(g => g.id === id);
+        if (!giver) return;
+        const newName = prompt('Rename giver:', giver.name);
+        if (newName && newName.trim()) {
+            giver.name = newName.trim();
+            this.saveData();
+            this.render();
+        }
+    }
+    deleteOtherGiver(id) {
+        const inUse = this.receivedGifts.some(rg => rg.giverType === 'other' && rg.giverId === id);
+        if (inUse) {
+            if (!confirm('This giver has received-gift records linked to them. Deleting will leave those gifts showing "(deleted giver)" instead of being removed. Continue?')) return;
+        }
+        this.otherGivers = this.otherGivers.filter(g => g.id !== id);
+        this.saveData();
+        this.render();
+    }
+    mergeOtherGiverPrompt(giverId) {
+        const giver = this.otherGivers.find(g => g.id === giverId);
+        if (!giver) return;
+        const options = [
+            ...this.getSortedPeople().map(p => ({ type: 'person', id: p.id, name: p.fullName })),
+            ...this.otherGivers.filter(g => g.id !== giverId).map(g => ({ type: 'other', id: g.id, name: g.name }))
+        ];
+        if (options.length === 0) { alert('No other people or givers to merge into.'); return; }
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 400px;';
+        dialog.innerHTML = '<h3 style="margin-bottom: 12px; color: #2D3436;">Merge "' + giver.name + '" into...</h3>' +
+            '<select id="merge_target" style="width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 4px;">' + options.map((o, i) => '<option value="' + i + '">' + o.name + (o.type === 'person' ? ' (Person)' : ' (Other Giver)') + '</option>').join('') + '</select>' +
+            '<p style="font-size: 12px; color: #636E72; margin-bottom: 16px;">All gifts logged from "' + giver.name + '" will be reassigned to the selected entry. This can\'t be undone.</p>' +
+            '<div style="display: flex; gap: 8px; justify-content: flex-end;">' +
+            '<button id="merge_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #FFE66D; cursor: pointer;">Cancel</button>' +
+            '<button id="merge_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B9D; color: white; cursor: pointer;">Merge</button>' +
+            '</div>';
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        document.getElementById('merge_cancel').onclick = () => modal.remove();
+        document.getElementById('merge_save').onclick = () => {
+            const idx = parseInt(document.getElementById('merge_target').value);
+            const target = options[idx];
+            this.receivedGifts.forEach(rg => {
+                if (rg.giverType === 'other' && rg.giverId === giverId) {
+                    rg.giverType = target.type;
+                    rg.giverId = target.id;
+                }
+            });
+            this.otherGivers = this.otherGivers.filter(g => g.id !== giverId);
+            this.saveData();
+            modal.remove();
+            this.render();
+        };
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    }
+    convertGiverToPerson(giverId) {
+        const giver = this.otherGivers.find(g => g.id === giverId);
+        if (!giver) return;
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 400px;';
+        dialog.innerHTML = '<h3 style="margin-bottom: 12px; color: #2D3436;">Convert "' + giver.name + '" to a full Person</h3>' +
+            '<label style="display: block; margin-bottom: 6px; color: #2D3436; font-size: 12px;">Birthday</label>' +
+            '<input type="date" id="cvt_bday" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #DFE6E9; border-radius: 4px;">' +
+            '<label style="display: block; margin-bottom: 6px; color: #2D3436; font-size: 12px;">Category</label>' +
+            '<select id="cvt_cat" style="width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 4px;"><option value="friend">Friend</option><option value="family">Family</option></select>' +
+            '<p style="font-size: 12px; color: #636E72; margin-bottom: 16px;">All gifts logged from "' + giver.name + '" will be re-linked to the new Person.</p>' +
+            '<div style="display: flex; gap: 8px; justify-content: flex-end;">' +
+            '<button id="cvt_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #FFE66D; cursor: pointer;">Cancel</button>' +
+            '<button id="cvt_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #FF6B9D; color: white; cursor: pointer;">Convert</button>' +
+            '</div>';
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        document.getElementById('cvt_cancel').onclick = () => modal.remove();
+        document.getElementById('cvt_save').onclick = () => {
+            const bdayVal = document.getElementById('cvt_bday').value;
+            if (!bdayVal) { alert('Please select a birthday'); return; }
+            const [y, m, d] = bdayVal.split('-');
+            const category = document.getElementById('cvt_cat').value;
+            const newId = Math.max(...this.people.map(p => p.id), 0) + 1;
+            this.people.push({ id: newId, fullName: giver.name, birthday: d + '-' + m, birthYear: parseInt(y), likes: '', dislikes: '', notes: '', giftHistory: [], includeInChristmas: false, messageOnly: false, fyiOnly: false, category: category, birthdayBudget: '', christmasBudget: '' });
+            this.receivedGifts.forEach(rg => {
+                if (rg.giverType === 'other' && rg.giverId === giverId) {
+                    rg.giverType = 'person';
+                    rg.giverId = newId;
+                }
+            });
+            this.otherGivers = this.otherGivers.filter(g => g.id !== giverId);
+            this.saveData();
+            modal.remove();
+            this.render();
+        };
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    }
+    addReceivedGift(giftName, fromValue, fromNewText, eventId, price, notes, thankYouSent) {
         if (!giftName) return alert('Enter gift name');
-        let fromName = fromPersonName || fromPersonFreeText;
-        if (!fromName) return alert('Enter who gave this gift');
-        let fromPersonId = null;
-        if (fromPersonName) {
-            const p = this.people.find(x => x.fullName === fromPersonName);
-            if (p) fromPersonId = p.id;
-        } else if (fromPersonFreeText) {
-            // Auto-link if the typed name exactly matches an existing person
-            const p = this.people.find(x => x.fullName.toLowerCase() === fromPersonFreeText.trim().toLowerCase());
-            if (p) { fromPersonId = p.id; fromName = p.fullName; }
+        let giverType, giverId;
+        if (fromValue === '__new__') {
+            const resolved = this.findOrCreateGiverByName(fromNewText, true);
+            if (!resolved) return alert('Enter who gave this gift');
+            giverType = resolved.giverType; giverId = resolved.giverId;
+        } else if (fromValue && fromValue.indexOf(':') > -1) {
+            const parts = fromValue.split(':');
+            giverType = parts[0]; giverId = parseInt(parts[1]);
+        } else {
+            return alert('Select or enter who gave this gift');
         }
         const gid = Math.max(...this.receivedGifts.map(g => g.id), 0) + 1;
-        this.receivedGifts.push({ id: gid, giftName: giftName, eventId: eventId ? parseInt(eventId) : null, fromPersonName: fromName, fromPersonId: fromPersonId, price: parseFloat(price) || 0, notes: notes || '', thankYouSent: thankYouSent || false, dateReceived: new Date().toISOString().split('T')[0] });
+        this.receivedGifts.push({ id: gid, giftName: giftName, eventId: eventId ? parseInt(eventId) : null, giverType: giverType, giverId: giverId, price: parseFloat(price) || 0, notes: notes || '', thankYouSent: thankYouSent || false, dateReceived: new Date().toISOString().split('T')[0] });
         this.addingReceivedGift = false;
-        this.receivedGiftFormState = { giftName: '', fromPersonName: '', fromPersonFreeText: '', event: null, price: '', notes: '', thankYouSent: false };
+        this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: null, price: '', notes: '', thankYouSent: false };
         this.saveData(); this.render();
     }
     updateReceivedGift(id, updates) { const g = this.receivedGifts.find(x => x.id === id); if (g) Object.assign(g, updates); this.saveData(); this.render(); }
@@ -681,19 +842,32 @@ class GiftTracker {
     expandReceivedGift(id) { this.expandedReceivedGift = this.expandedReceivedGift === id ? null : id; this.editingReceivedGift = null; this.render(); }
     toggleEditReceivedGift(id) { this.editingReceivedGift = this.editingReceivedGift === id ? null : id; this.render(); }
     toggleReceivedThankYou(id) { const g = this.receivedGifts.find(x => x.id === id); if (g) { g.thankYouSent = !g.thankYouSent; this.saveData(); this.render(); } }
+    renderGiverSelectOptions(selectedValue) {
+        let html = '<option value="">-- Select who gave this --</option>';
+        const people = this.getSortedPeople();
+        if (people.length > 0) {
+            html += '<optgroup label="People">' + people.map(p => '<option value="person:' + p.id + '"' + (selectedValue === 'person:' + p.id ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</optgroup>';
+        }
+        const givers = [...this.otherGivers].sort((a, b) => a.name.localeCompare(b.name));
+        if (givers.length > 0) {
+            html += '<optgroup label="Other Givers">' + givers.map(g => '<option value="other:' + g.id + '"' + (selectedValue === 'other:' + g.id ? ' selected' : '') + '>' + g.name + '</option>').join('') + '</optgroup>';
+        }
+        html += '<option value="__new__"' + (selectedValue === '__new__' ? ' selected' : '') + '>+ Add new giver...</option>';
+        return html;
+    }
     renderReceivedGiftForm() {
         const state = this.receivedGiftFormState;
         let html = '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Received Gift</h3>';
         html += '<input type="text" id="rgname" placeholder="Gift name" value="' + state.giftName + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.giftName = this.value">';
-        html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="rgfrom" onchange="window.app.receivedGiftFormState.fromPersonName = this.value; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select from People --</option>' + this.getSortedPeople().map(p => '<option value="' + p.fullName + '"' + (state.fromPersonName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '<option value="__other__"' + (state.fromPersonName === '__other__' ? ' selected' : '') + '>Someone else (type name)</option></select>';
-        if (state.fromPersonName === '__other__') {
-            html += '<input type="text" id="rgfromtext" placeholder="Their name" value="' + (state.fromPersonFreeText || '') + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.fromPersonFreeText = this.value">';
+        html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="rgfrom" onchange="window.app.receivedGiftFormState.from = this.value; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">' + this.renderGiverSelectOptions(state.from) + '</select>';
+        if (state.from === '__new__') {
+            html += '<input type="text" id="rgfromtext" placeholder="Their name" value="' + (state.fromNewText || '') + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.fromNewText = this.value">';
         }
         html += '<select id="rgevent" onchange="window.app.receivedGiftFormState.event = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (state.event == e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>';
         html += '<input type="number" id="rgprice" placeholder="Value / Price (optional)" value="' + state.price + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.price = this.value">';
         html += '<textarea id="rgnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.notes = this.value">' + state.notes + '</textarea>';
         html += '<div class="mb-2"><input type="checkbox" id="rgthanks" ' + (state.thankYouSent ? 'checked' : '') + ' onchange="window.app.receivedGiftFormState.thankYouSent = this.checked"><label for="rgthanks" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>';
-        html += '<button onclick="const fromSel = document.getElementById(\'rgfrom\').value; const fromText = fromSel === \'__other__\' ? document.getElementById(\'rgfromtext\').value : \'\'; window.app.addReceivedGift(document.getElementById(\'rgname\').value, fromSel === \'__other__\' ? \'\' : fromSel, fromText, document.getElementById(\'rgevent\').value, document.getElementById(\'rgprice\').value, document.getElementById(\'rgnotes\').value, document.getElementById(\'rgthanks\').checked)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
+        html += '<button onclick="const fromSel = document.getElementById(\'rgfrom\').value; const fromText = fromSel === \'__new__\' ? document.getElementById(\'rgfromtext\').value : \'\'; window.app.addReceivedGift(document.getElementById(\'rgname\').value, fromSel, fromText, document.getElementById(\'rgevent\').value, document.getElementById(\'rgprice\').value, document.getElementById(\'rgnotes\').value, document.getElementById(\'rgthanks\').checked)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
         html += '<button onclick="window.app.addingReceivedGift = false; window.app.render()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button>';
         html += '</div>';
         return html;
@@ -702,25 +876,26 @@ class GiftTracker {
         const isExp = this.expandedReceivedGift === g.id;
         const isEdit = this.editingReceivedGift === g.id;
         const event = g.eventId ? this.events.find(e => e.id === g.eventId) : null;
-        const isLinked = this.people.find(p => p.fullName === g.fromPersonName);
-        let html = '<div class="mb-3 swipe-item" data-swipe-item data-received-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandReceivedGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">📥 ' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">From ' + g.fromPersonName + (isLinked ? ' 🔗' : '') + (g.price ? ' • £' + g.price.toFixed(2) : '') + ' • ' + (g.thankYouSent ? '✅ Thanked' : '✉️ Not thanked') + '</p></button>';
+        const giverInfo = this.getGiverInfo(g);
+        let html = '<div class="mb-3 swipe-item" data-swipe-item data-received-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandReceivedGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">📥 ' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">From ' + giverInfo.name + (giverInfo.type === 'person' ? ' 🔗' : '') + (g.price ? ' • £' + g.price.toFixed(2) : '') + ' • ' + (g.thankYouSent ? '✅ Thanked' : '✉️ Not thanked') + '</p></button>';
         if (isExp) {
             if (isEdit) {
+                const currentValue = g.giverType + ':' + g.giverId;
                 html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">'
                     + '<input type="text" id="erg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
-                    + '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="erg_from_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select Person --</option>' + this.getSortedPeople().map(p => '<option value="' + p.fullName + '"' + (g.fromPersonName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '<option value="__other__"' + (!isLinked ? ' selected' : '') + '>Someone else</option></select>'
-                    + '<input type="text" id="erg_fromtext_' + g.id + '" value="' + (!isLinked ? g.fromPersonName : '') + '" placeholder="Their name (if someone else)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                    + '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="erg_from_' + g.id + '" onchange="document.getElementById(\'erg_fromtext_' + g.id + '\').style.display = this.value === \'__new__\' ? \'block\' : \'none\';" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">' + this.renderGiverSelectOptions(currentValue) + '</select>'
+                    + '<input type="text" id="erg_fromtext_' + g.id + '" value="" placeholder="Their name (only if you picked + Add new giver above)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); display: none;">'
                     + '<select id="erg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>'
                     + '<input type="number" id="erg_price_' + g.id + '" value="' + g.price + '" placeholder="Value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
                     + '<textarea id="erg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + g.notes + '</textarea>'
                     + '<div class="mb-2"><input type="checkbox" id="erg_thanks_' + g.id + '" ' + (g.thankYouSent ? 'checked' : '') + '><label for="erg_thanks_' + g.id + '" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>'
-                    + '<button onclick="const fromSel = document.getElementById(\'erg_from_' + g.id + '\').value; const fromName = fromSel === \'__other__\' ? document.getElementById(\'erg_fromtext_' + g.id + '\').value : fromSel; const matchedPerson = window.app.people.find(p => p.fullName === fromName); window.app.updateReceivedGift(' + g.id + ', {giftName: document.getElementById(\'erg_name_' + g.id + '\').value, fromPersonName: fromName, fromPersonId: matchedPerson ? matchedPerson.id : null, eventId: parseInt(document.getElementById(\'erg_event_' + g.id + '\').value) || null, price: parseFloat(document.getElementById(\'erg_price_' + g.id + '\').value) || 0, notes: document.getElementById(\'erg_notes_' + g.id + '\').value, thankYouSent: document.getElementById(\'erg_thanks_' + g.id + '\').checked}); window.app.editingReceivedGift = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button>'
+                    + '<button onclick="const fromSel = document.getElementById(\'erg_from_' + g.id + '\').value; let giverType, giverId; if (fromSel === \'__new__\') { const resolved = window.app.findOrCreateGiverByName(document.getElementById(\'erg_fromtext_' + g.id + '\').value, true); if(!resolved) { alert(\'Enter a name\'); return; } giverType = resolved.giverType; giverId = resolved.giverId; } else { const parts = fromSel.split(\':\'); giverType = parts[0]; giverId = parseInt(parts[1]); } window.app.updateReceivedGift(' + g.id + ', {giftName: document.getElementById(\'erg_name_' + g.id + '\').value, giverType: giverType, giverId: giverId, eventId: parseInt(document.getElementById(\'erg_event_' + g.id + '\').value) || null, price: parseFloat(document.getElementById(\'erg_price_' + g.id + '\').value) || 0, notes: document.getElementById(\'erg_notes_' + g.id + '\').value, thankYouSent: document.getElementById(\'erg_thanks_' + g.id + '\').checked}); window.app.editingReceivedGift = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button>'
                     + '<button onclick="window.app.toggleEditReceivedGift(' + g.id + ')" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button>'
                     + '</div>';
             } else {
                 html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">';
                 html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Event</p><p style="color: var(--color-text);">' + (event ? event.name : 'No event') + '</p></div>';
-                html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">From</p><p style="color: var(--color-text);">' + g.fromPersonName + (isLinked ? ' (linked to People)' : ' (not in People)') + '</p></div>';
+                html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">From</p><p style="color: var(--color-text);">' + giverInfo.name + (giverInfo.type === 'person' ? ' (linked to People)' : ' (Other Giver)') + '</p></div>';
                 if (g.notes) html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Notes</p><p style="color: var(--color-text);">' + g.notes + '</p></div>';
                 html += '<div class="mb-2"><input type="checkbox" id="rgt_' + g.id + '" ' + (g.thankYouSent ? 'checked' : '') + ' onchange="window.app.toggleReceivedThankYou(' + g.id + ')"><label for="rgt_' + g.id + '" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>';
                 html += '</div>';
@@ -770,6 +945,43 @@ class GiftTracker {
             }
         });
         return Object.entries(gpp).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.spent - a.spent).slice(0, 5);
+    }
+    getTopGivers() {
+        const stats = {};
+        this.receivedGifts.forEach(g => {
+            const key = g.giverType + ':' + g.giverId;
+            if (!stats[key]) stats[key] = { giverType: g.giverType, giverId: g.giverId, count: 0, spent: 0 };
+            stats[key].count++;
+            stats[key].spent += g.price;
+        });
+        return Object.values(stats).map(s => ({ ...s, name: this.getGiverInfo({ giverType: s.giverType, giverId: s.giverId }).name })).sort((a, b) => b.spent - a.spent).slice(0, 5);
+    }
+    showGiverHistoryModal(giverType, giverId) {
+        const name = this.getGiverInfo({ giverType: giverType, giverId: giverId }).name;
+        const gifts = this.receivedGifts.filter(g => g.giverType === giverType && g.giverId === giverId).sort((a, b) => (a.dateReceived || '').localeCompare(b.dateReceived || ''));
+        let content = '<div style="padding: 20px;"><h2 style="margin-bottom: 16px; color: #2D3436;">Gifts from ' + name + '</h2>';
+        if (gifts.length === 0) {
+            content += '<p style="color: #636E72;">No gifts recorded.</p>';
+        } else {
+            const total = gifts.reduce((s, g) => s + g.price, 0);
+            content += '<p style="color: #636E72; margin-bottom: 12px; font-size: 13px;">' + gifts.length + ' gift(s) • £' + total.toFixed(2) + ' total</p>';
+            content += '<table style="width: 100%; border-collapse: collapse; color: #2D3436;"><tr style="background-color: #F5F6FA; border-bottom: 2px solid #DFE6E9;"><th style="padding: 8px; text-align: left;">Gift</th><th style="padding: 8px; text-align: left;">Event</th><th style="padding: 8px; text-align: center;">Value</th><th style="padding: 8px; text-align: center;">Thanked</th></tr>';
+            gifts.forEach(g => {
+                const event = this.events.find(e => e.id === g.eventId);
+                content += '<tr style="border-bottom: 1px solid #DFE6E9;"><td style="padding: 8px;">' + g.giftName + '</td><td style="padding: 8px;">' + (event ? event.name : '-') + '</td><td style="padding: 8px; text-align: center;">£' + g.price.toFixed(2) + '</td><td style="padding: 8px; text-align: center;">' + (g.thankYouSent ? '✅' : '✉️') + '</td></tr>';
+            });
+            content += '</table>';
+        }
+        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-giver-history]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #FF6B9D; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'background: white; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+        dialog.innerHTML = content;
+        modal.setAttribute('data-modal-giver-history', 'true');
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     }
     getPurchasedVsUnpurchased() {
         const purchased = this.gifts.filter(g => g.status === 'purchased').length;
@@ -821,12 +1033,19 @@ class GiftTracker {
             }
         });
         
+        csv += '\n=== OTHER GIVERS ===\n';
+        csv += 'ID,Name\n';
+        this.otherGivers.forEach(g => {
+            csv += escapeCSV(g.id) + ',' + escapeCSV(g.name) + '\n';
+        });
+        
         csv += '\n=== RECEIVED GIFTS ===\n';
-        csv += 'ID,Gift Name,From Person,Linked Person ID,Event ID,Event Name,Price,Thank You Sent,Date Received,Notes\n';
+        csv += 'ID,Gift Name,From,Giver Type,Giver ID,Event ID,Event Name,Price,Thank You Sent,Date Received,Notes\n';
         this.receivedGifts.forEach(g => {
             const event = this.events.find(e => e.id === g.eventId);
             const eventName = event ? event.name : '';
-            csv += escapeCSV(g.id) + ',' + escapeCSV(g.giftName) + ',' + escapeCSV(g.fromPersonName) + ',' + escapeCSV(g.fromPersonId || '') + ',' + escapeCSV(g.eventId || '') + ',' + escapeCSV(eventName) + ',' + escapeCSV(g.price) + ',' + (g.thankYouSent ? 'Yes' : 'No') + ',' + escapeCSV(g.dateReceived || '') + ',' + escapeCSV(g.notes || '') + '\n';
+            const giverInfo = this.getGiverInfo(g);
+            csv += escapeCSV(g.id) + ',' + escapeCSV(g.giftName) + ',' + escapeCSV(giverInfo.name) + ',' + escapeCSV(g.giverType || '') + ',' + escapeCSV(g.giverId || '') + ',' + escapeCSV(g.eventId || '') + ',' + escapeCSV(eventName) + ',' + escapeCSV(g.price) + ',' + (g.thankYouSent ? 'Yes' : 'No') + ',' + escapeCSV(g.dateReceived || '') + ',' + escapeCSV(g.notes || '') + '\n';
         });
         
         const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
@@ -1259,7 +1478,7 @@ class GiftTracker {
                         });
                         html += '</div>';
                     }
-                    const preceived = this.getReceivedGiftsForPerson(p.fullName);
+                    const preceived = this.getReceivedGiftsForPerson(p.id);
                     if (preceived.length > 0) {
                         const receivedTotal = preceived.reduce((s, g) => s + g.price, 0);
                         html += '<div class="p-2 rounded border mb-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-2" style="color: var(--color-text-muted);">GIFTS RECEIVED FROM THEM (£' + receivedTotal.toFixed(2) + ')</p>';
@@ -1432,18 +1651,20 @@ class GiftTracker {
                         html += '<div class="flex items-center p-2 rounded mb-2" style="background-color: var(--color-secondary);"><input type="checkbox" id="msg_check_' + e.id + '" ' + (e.messaged ? 'checked' : '') + ' onchange="window.app.updateEvent(' + e.id + ', {messaged: this.checked})" style="cursor: pointer;"><label for="msg_check_' + e.id + '" style="color: var(--color-text); margin-left: 8px; cursor: pointer;"> Messaged</label></div>';
                     }
 
-                    // Received Gifts section (works for all event types)
-                    html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-border);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><p style="color: var(--color-text); font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0;">📥 Received Gifts</p><button onclick="window.app.toggleAddReceivedGift(' + e.id + ')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">+</button></div>';
-                    const eventReceivedGifts = this.getReceivedGiftsForEvent(e.id);
-                    if (eventReceivedGifts.length === 0) {
-                        html += '<p style="color: var(--color-text-muted); font-size: 12px;">No received gifts logged yet</p>';
-                    } else {
-                        eventReceivedGifts.forEach(rg => { html += this.renderReceivedGiftItem(rg); });
+                    // Received Gifts section - only relevant for events involving "Me" or "Adam"
+                    if (this.isReceivedGiftsRelevantEvent(e)) {
+                        html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-border);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><p style="color: var(--color-text); font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0;">📥 Received Gifts</p><button onclick="window.app.toggleAddReceivedGift(' + e.id + ')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">+</button></div>';
+                        const eventReceivedGifts = this.getReceivedGiftsForEvent(e.id);
+                        if (eventReceivedGifts.length === 0) {
+                            html += '<p style="color: var(--color-text-muted); font-size: 12px;">No received gifts logged yet</p>';
+                        } else {
+                            eventReceivedGifts.forEach(rg => { html += this.renderReceivedGiftItem(rg); });
+                        }
+                        if (this.addingReceivedGift && this.receivedGiftFormState.event == e.id) {
+                            html += this.renderReceivedGiftForm();
+                        }
+                        html += '</div>';
                     }
-                    if (this.addingReceivedGift && this.receivedGiftFormState.event == e.id) {
-                        html += this.renderReceivedGiftForm();
-                    }
-                    html += '</div>';
                     
                     // Show edit button or edit form
                     const isEditing = this.editingEvent === e.id;
@@ -1616,9 +1837,18 @@ class GiftTracker {
         html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Purchase Status</p><div class="flex items-center justify-between mb-2"><span style="color: var(--color-text);">Purchased</span><span class="font-bold" style="color: var(--color-success);">✓ ' + purchased + '</span></div><div class="flex items-center justify-between mb-3"><span style="color: var(--color-text);">Not Purchased</span><span class="font-bold" style="color: var(--color-warning);">○ ' + unpurchased + '</span></div><div class="w-full rounded-full h-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (total > 0 ? (purchased / total * 100) : 0) + '%; background-color: var(--color-success);"></div></div></div>';
 
         if (topGiftees.length > 0) {
-            html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Recipients</p>';
+            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Recipients</p>';
             topGiftees.forEach((giftee, idx) => {
                 html += '<div class="flex items-center justify-between pb-2' + (idx < topGiftees.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGiftees.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giftee.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giftee.count + ' gift' + (giftee.count > 1 ? 's' : '') + '</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giftee.spent.toFixed(2) + '</p></div>';
+            });
+            html += '</div>';
+        }
+
+        const topGivers = this.getTopGivers();
+        if (topGivers.length > 0) {
+            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Givers</p>';
+            topGivers.forEach((giver, idx) => {
+                html += '<div onclick="window.app.showGiverHistoryModal(\'' + giver.giverType + '\', ' + giver.giverId + ')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < topGivers.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGivers.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giver.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giver.count + ' gift' + (giver.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giver.spent.toFixed(2) + '</p></div>';
             });
             html += '</div>';
         }
@@ -1689,6 +1919,17 @@ class GiftTracker {
             html += '<div style="display: grid; gap: 8px;">';
             this.shops.forEach((shop, idx) => {
                 html += '<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--color-surface); border-radius: 4px; border: 1px solid var(--color-border);"><span style="color: var(--color-text);">' + shop + '</span><button onclick="window.app.deleteShop(' + idx + ')" style="background-color: var(--color-error); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;">Delete</button></div>';
+            });
+            html += '</div>';
+        }
+        html += '</div><h3 class="font-semibold mt-6 mb-4" style="color: var(--color-text);">Other Givers</h3><p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">People who\'ve given you gifts but aren\'t in your People list.</p><div style="background-color: var(--color-secondary); border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid var(--color-border);">';
+        if (this.otherGivers.length === 0) {
+            html += '<p style="color: var(--color-text-muted); font-size: 14px;">No other givers added yet. Add one when logging a received gift.</p>';
+        } else {
+            html += '<div style="display: grid; gap: 8px;">';
+            [...this.otherGivers].sort((a, b) => a.name.localeCompare(b.name)).forEach(giver => {
+                const giftCount = this.receivedGifts.filter(rg => rg.giverType === 'other' && rg.giverId === giver.id).length;
+                html += '<div style="padding: 8px; background-color: var(--color-surface); border-radius: 4px; border: 1px solid var(--color-border);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><span style="color: var(--color-text);">' + giver.name + (giftCount > 0 ? ' <span style="color: var(--color-text-muted); font-size: 11px;">(' + giftCount + ' gift' + (giftCount > 1 ? 's' : '') + ')</span>' : '') + '</span></div><div style="display: flex; gap: 6px; flex-wrap: wrap;"><button onclick="window.app.renameOtherGiver(' + giver.id + ')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Rename</button><button onclick="window.app.mergeOtherGiverPrompt(' + giver.id + ')" style="background-color: var(--color-primary); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Merge</button><button onclick="window.app.convertGiverToPerson(' + giver.id + ')" style="background-color: var(--color-success); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Convert to Person</button><button onclick="window.app.deleteOtherGiver(' + giver.id + ')" style="background-color: var(--color-error); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Delete</button></div></div>';
             });
             html += '</div>';
         }
