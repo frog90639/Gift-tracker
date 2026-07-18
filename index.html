@@ -99,6 +99,14 @@ class GiftTracker {
         });
         this.saveData();
         
+        // Self-heal: if a gift or received gift still references an event ID that no
+        // longer exists (e.g. from an event deleted before this cleanup was in place),
+        // detach it rather than leaving a dangling reference. The gift record itself
+        // (giver, price, notes, etc.) is preserved - it just shows "No event".
+        const validEventIds = new Set(this.events.map(e => e.id));
+        this.gifts.forEach(g => { if (g.eventId && !validEventIds.has(g.eventId)) g.eventId = null; });
+        this.receivedGifts.forEach(g => { if (g.eventId && !validEventIds.has(g.eventId)) g.eventId = null; });
+        
         // Best-effort backfill: if a received gift is tied to an event with exactly one
         // relevant person (Me or Adam) and has no receivedByPersonName yet, tag it now.
         this.receivedGifts.forEach(rg => {
@@ -110,6 +118,7 @@ class GiftTracker {
                 }
             }
         });
+        this.saveData();
         
         this.currentTab = 'events';
         this.expandedPerson = null;
@@ -602,6 +611,32 @@ class GiftTracker {
             this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: eventId || null, price: '', notes: '', thankYouSent: false, receivedBy: receivedByPersonName || '' };
         }
         this.render();
+    }
+    getUnassignedReceivedGifts() { return this.receivedGifts.filter(g => !g.eventId); }
+    assignReceivedGiftToEvent(eventId, giftId, personName) {
+        const g = this.receivedGifts.find(x => x.id === giftId);
+        if (g) {
+            g.eventId = eventId ? parseInt(eventId) : null;
+            if (personName) g.receivedByPersonName = personName;
+            this.saveData();
+            this.render();
+        }
+    }
+    renderReceivedGiftPicker(eventId, personName, panelId) {
+        const unassigned = this.getUnassignedReceivedGifts();
+        const safePersonName = (personName || '').replace(/'/g, "\\'");
+        let html = '<div id="' + panelId + '" style="display: none; padding: 10px; margin-bottom: 10px; border: 1px solid var(--color-border); border-radius: 6px; background-color: var(--color-secondary);">';
+        if (unassigned.length > 0) {
+            html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Assign an existing unassigned gift</label><select id="' + panelId + '_select" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text); font-size: 12px;"><option value="">Choose a gift...</option>' + unassigned.map(g => {
+                const giverInfo = this.getGiverInfo(g);
+                return '<option value="' + g.id + '">' + g.giftName + ' (from ' + giverInfo.name + (g.price ? ', £' + g.price.toFixed(2) : '') + ')</option>';
+            }).join('') + '</select><button onclick="const sel = document.getElementById(\'' + panelId + '_select\'); const gid = sel.value; if(gid) { window.app.assignReceivedGiftToEvent(' + eventId + ', parseInt(gid), \'' + safePersonName + '\'); }" class="w-full px-3 py-2 rounded text-sm mb-2" style="background-color: var(--color-primary); color: white; font-size: 12px;">Assign This Gift</button>';
+        } else {
+            html += '<p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">No unassigned received gifts yet.</p>';
+        }
+        html += '<button onclick="document.getElementById(\'' + panelId + '\').style.display = \'none\'; window.app.toggleAddReceivedGift(' + eventId + ', \'' + safePersonName + '\')" class="w-full px-3 py-2 rounded text-sm" style="background-color: var(--color-accent); color: white; font-size: 12px;">+ Log a brand new gift</button>';
+        html += '</div>';
+        return html;
     }
     addShop(shopName) {
         if (!shopName || !shopName.trim()) return;
@@ -1740,9 +1775,11 @@ class GiftTracker {
                         const relevantPeople = this.getRelevantPeopleForEvent(e);
                         html += '<div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-border);"><p style="color: var(--color-text); font-size: 12px; font-weight: 600; text-transform: uppercase; margin: 0 0 8px 0;">📥 Received Gifts</p>';
                         if (relevantPeople.length > 1) {
-                            relevantPeople.forEach(personName => {
+                            relevantPeople.forEach((personName, personIdx) => {
                                 const giftsForPerson = this.getReceivedGiftsForEvent(e.id).filter(g => g.receivedByPersonName === personName);
-                                html += '<div style="margin-bottom: 14px;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><p style="color: var(--color-text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.03em; margin: 0;">FOR ' + personName.toUpperCase() + '</p><button onclick="window.app.toggleAddReceivedGift(' + e.id + ', \'' + personName.replace(/'/g, "\\'") + '\')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;">+</button></div>';
+                                const panelId = 'rgpicker_' + e.id + '_' + personIdx;
+                                html += '<div style="margin-bottom: 14px;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><p style="color: var(--color-text-muted); font-size: 11px; font-weight: 700; letter-spacing: 0.03em; margin: 0;">FOR ' + personName.toUpperCase() + '</p><button onclick="const p = document.getElementById(\'' + panelId + '\'); if(p) { p.style.display = p.style.display === \'none\' ? \'block\' : \'none\'; }" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;">+</button></div>';
+                                html += this.renderReceivedGiftPicker(e.id, personName, panelId);
                                 if (this.addingReceivedGift && this.receivedGiftFormState.event == e.id && this.receivedGiftFormState.receivedBy === personName) {
                                     html += this.renderReceivedGiftForm();
                                 }
@@ -1762,7 +1799,9 @@ class GiftTracker {
                             }
                         } else {
                             const singlePerson = relevantPeople[0];
-                            html += '<div style="display: flex; justify-content: flex-end; margin-bottom: 8px;"><button onclick="window.app.toggleAddReceivedGift(' + e.id + ', \'' + singlePerson.replace(/'/g, "\\'") + '\')" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">+</button></div>';
+                            const panelId = 'rgpicker_' + e.id + '_single';
+                            html += '<div style="display: flex; justify-content: flex-end; margin-bottom: 8px;"><button onclick="const p = document.getElementById(\'' + panelId + '\'); if(p) { p.style.display = p.style.display === \'none\' ? \'block\' : \'none\'; }" style="background-color: var(--color-accent); color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">+</button></div>';
+                            html += this.renderReceivedGiftPicker(e.id, singlePerson, panelId);
                             if (this.addingReceivedGift && this.receivedGiftFormState.event == e.id) {
                                 html += this.renderReceivedGiftForm();
                             }
