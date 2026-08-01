@@ -750,6 +750,15 @@ class GiftTracker {
         return names;
     }
     isReceivedGiftsRelevantEvent(e) { return this.getRelevantPeopleForEvent(e).length > 0; }
+    getMeAdamPeopleNames() {
+        const matches = (name) => /\b(me|adam)\b/i.test(name || '');
+        return this.getSortedPeople().filter(p => matches(p.fullName)).map(p => p.fullName);
+    }
+    getReceivedGiftsRelevantEvents(personName) {
+        const events = this.getSortedEvents().filter(e => this.isReceivedGiftsRelevantEvent(e));
+        if (!personName) return events;
+        return events.filter(e => this.getRelevantPeopleForEvent(e).includes(personName));
+    }
     getReceivedGiftsForPerson(personId) { return this.receivedGifts.filter(g => g.giverType === 'person' && g.giverId === personId); }
     normalizeName(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
     getGiverInfo(g) {
@@ -967,21 +976,27 @@ class GiftTracker {
         if (state.from === '__new__') {
             html += '<input type="text" id="rgfromtext" placeholder="Their name" value="' + (state.fromNewText || '') + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.fromNewText = this.value">';
         }
-        html += '<select id="rgevent" onchange="window.app.receivedGiftFormState.event = this.value; window.app.receivedGiftFormState.receivedBy = \'\'; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (state.event == e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>';
-        const selectedEvent = state.event ? this.events.find(ev => ev.id == state.event) : null;
-        const relevantPeople = selectedEvent ? this.getRelevantPeopleForEvent(selectedEvent) : [];
-        if (state.receivedBy && relevantPeople.includes(state.receivedBy)) {
-            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text);">Received by: <strong>' + state.receivedBy + '</strong></div>';
-        } else if (relevantPeople.length > 1) {
-            html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Received by</label><select id="rgreceivedby" onchange="window.app.receivedGiftFormState.receivedBy = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select --</option>' + relevantPeople.map(n => '<option value="' + n + '"' + (state.receivedBy === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>';
-        } else if (relevantPeople.length === 1) {
-            state.receivedBy = relevantPeople[0];
-            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text);">Received by: <strong>' + relevantPeople[0] + '</strong></div>';
+        const meAdamPeople = this.getMeAdamPeopleNames();
+        if (state.receivedBy) {
+            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text); display: flex; justify-content: space-between; align-items: center;"><span>Received by: <strong>' + state.receivedBy + '</strong></span>' + (meAdamPeople.length > 1 ? '<button onclick="window.app.receivedGiftFormState.receivedBy = \'\'; window.app.receivedGiftFormState.event = \'\'; window.app.render()" style="background: none; border: none; color: var(--color-accent); font-size: 11px; cursor: pointer; text-decoration: underline;">Change</button>' : '') + '</div>';
+        } else if (meAdamPeople.length > 1) {
+            html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Received by</label><select id="rgreceivedby" onchange="window.app.receivedGiftFormState.receivedBy = this.value; window.app.receivedGiftFormState.event = \'\'; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select --</option>' + meAdamPeople.map(n => '<option value="' + n + '">' + n + '</option>').join('') + '</select>';
+        } else if (meAdamPeople.length === 1) {
+            state.receivedBy = meAdamPeople[0];
+            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text);">Received by: <strong>' + meAdamPeople[0] + '</strong></div>';
+        } else {
+            html += '<p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">Add "Me" or "Adam" to your People list to track who a gift was for.</p>';
+        }
+        if (state.receivedBy) {
+            const eventsForPerson = this.getReceivedGiftsRelevantEvents(state.receivedBy);
+            html += '<select id="rgevent" onchange="window.app.receivedGiftFormState.event = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + eventsForPerson.map(e => '<option value="' + e.id + '"' + (state.event == e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>';
+        } else {
+            html += '<select id="rgevent" style="display: none;"></select>';
         }
         html += '<input type="number" id="rgprice" placeholder="Value / Price (optional)" value="' + state.price + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.price = this.value">';
         html += '<textarea id="rgnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.notes = this.value">' + state.notes + '</textarea>';
         html += '<div class="mb-2"><input type="checkbox" id="rgthanks" ' + (state.thankYouSent ? 'checked' : '') + ' onchange="window.app.receivedGiftFormState.thankYouSent = this.checked"><label for="rgthanks" style="color: var(--color-text); margin-left: 8px;"> Thank you sent</label></div>';
-        html += '<button onclick="const fromSel = document.getElementById(\'rgfrom\').value; const fromText = fromSel === \'__new__\' ? document.getElementById(\'rgfromtext\').value : \'\'; window.app.addReceivedGift(document.getElementById(\'rgname\').value, fromSel, fromText, document.getElementById(\'rgevent\').value, document.getElementById(\'rgprice\').value, document.getElementById(\'rgnotes\').value, document.getElementById(\'rgthanks\').checked, window.app.receivedGiftFormState.receivedBy)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
+        html += '<button onclick="const fromSel = document.getElementById(\'rgfrom\').value; const fromText = fromSel === \'__new__\' ? document.getElementById(\'rgfromtext\').value : \'\'; const evEl = document.getElementById(\'rgevent\'); window.app.addReceivedGift(document.getElementById(\'rgname\').value, fromSel, fromText, evEl ? evEl.value : \'\', document.getElementById(\'rgprice\').value, document.getElementById(\'rgnotes\').value, document.getElementById(\'rgthanks\').checked, window.app.receivedGiftFormState.receivedBy)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
         html += '<button onclick="window.app.addingReceivedGift = false; window.app.render()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button>';
         html += '</div>';
         return html;
@@ -1000,7 +1015,7 @@ class GiftTracker {
                     + '<input type="text" id="erg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
                     + '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">From</label><select id="erg_from_' + g.id + '" onchange="document.getElementById(\'erg_fromtext_' + g.id + '\').style.display = this.value === \'__new__\' ? \'block\' : \'none\';" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);">' + this.renderGiverSelectOptions(currentValue) + '</select>'
                     + '<input type="text" id="erg_fromtext_' + g.id + '" value="" placeholder="Their name (only if you picked + Add new giver above)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); display: none;">'
-                    + '<select id="erg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getSortedEvents().map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>'
+                    + '<select id="erg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + this.getReceivedGiftsRelevantEvents(g.receivedByPersonName).map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>'
                     + (relevantPeopleForEdit.length > 1 ? '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Received by</label><select id="erg_receivedby_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select --</option>' + relevantPeopleForEdit.map(n => '<option value="' + n + '"' + (g.receivedByPersonName === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' : '')
                     + '<input type="number" id="erg_price_' + g.id + '" value="' + g.price + '" placeholder="Value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">'
                     + '<textarea id="erg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + g.notes + '</textarea>'
@@ -1760,7 +1775,6 @@ class GiftTracker {
                                 } else {
                                     html += '<div id="gift_dropdown_' + e.id + '_' + idx + '" style="display: none; padding: 8px 0; margin-bottom: 8px;"><p style="color: var(--color-text-muted); font-size: 12px;">No gifts available to assign</p></div>';
                                 }
-                                html += '</div>';
                             });
                             html += '</div>';
                         }
