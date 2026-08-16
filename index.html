@@ -686,8 +686,9 @@ class GiftTracker {
     toggleSettings() { this.showSettings = !this.showSettings; this.render(); }
     addGift(name, person, eid, price, status, category, url, notes, shop) {
         if (!name) return alert('Enter gift name');
+        const validEid = this.validateEventId(eid);
         const gid = Math.max(...this.gifts.map(g => g.id), 0) + 1;
-        this.gifts.push({ id: gid, giftName: name, personName: person || '', eventId: eid ? parseInt(eid) : null, status: status || 'idea', price: parseFloat(price) || 0, url: url || '', notes: notes || '', category: category || 'other', shop: shop || '', photoUrl: '', purchaseYear: new Date().getFullYear() });
+        this.gifts.push({ id: gid, giftName: name, personName: person || '', eventId: validEid, status: status || 'idea', price: parseFloat(price) || 0, url: url || '', notes: notes || '', category: category || 'other', shop: shop || '', photoUrl: '', purchaseYear: new Date().getFullYear() });
         if (person) {
             const p = this.people.find(x => x.fullName === person);
             if (p) {
@@ -696,8 +697,8 @@ class GiftTracker {
             }
         }
         // If both person and event are selected, add to event's giftAssignments
-        if (person && eid) {
-            const e = this.events.find(x => x.id === parseInt(eid));
+        if (person && validEid) {
+            const e = this.events.find(x => x.id === validEid);
             if (e) {
                 if (!e.people) e.people = [];
                 if (!e.people.find(p => p.name === person)) {
@@ -716,6 +717,7 @@ class GiftTracker {
     updateGift(id, updates) { 
         const g = this.gifts.find(x => x.id === id);
         if (g) {
+            if ('eventId' in updates) updates.eventId = this.validateEventId(updates.eventId);
             const oldEventId = g.eventId;
             const newEventId = updates.eventId;
             const personName = updates.personName || g.personName;
@@ -962,6 +964,14 @@ class GiftTracker {
         };
         modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     }
+    validateEventId(eventId) {
+        // Never let a gift be saved pointing at an event that doesn't currently exist -
+        // this is a hard safety net regardless of how a stale ID might reach this point.
+        if (!eventId) return null;
+        const parsed = parseInt(eventId);
+        if (!parsed) return null;
+        return this.events.some(e => e.id === parsed) ? parsed : null;
+    }
     addReceivedGift(giftName, fromValue, fromNewText, eventId, price, notes, thankYouSent, receivedByPersonName) {
         if (!giftName) return alert('Enter gift name');
         let giverType, giverId;
@@ -976,12 +986,12 @@ class GiftTracker {
             return alert('Select or enter who gave this gift');
         }
         const gid = Math.max(...this.receivedGifts.map(g => g.id), 0) + 1;
-        this.receivedGifts.push({ id: gid, giftName: giftName, eventId: eventId ? parseInt(eventId) : null, giverType: giverType, giverId: giverId, price: parseFloat(price) || 0, notes: notes || '', thankYouSent: thankYouSent || false, dateReceived: new Date().toISOString().split('T')[0], receivedByPersonName: receivedByPersonName || null });
+        this.receivedGifts.push({ id: gid, giftName: giftName, eventId: this.validateEventId(eventId), giverType: giverType, giverId: giverId, price: parseFloat(price) || 0, notes: notes || '', thankYouSent: thankYouSent || false, dateReceived: new Date().toISOString().split('T')[0], receivedByPersonName: receivedByPersonName || null });
         this.addingReceivedGift = false;
         this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: null, price: '', notes: '', thankYouSent: false, receivedBy: '' };
         this.saveData(); this.render();
     }
-    updateReceivedGift(id, updates) { const g = this.receivedGifts.find(x => x.id === id); if (g) Object.assign(g, updates); this.saveData(); this.render(); }
+    updateReceivedGift(id, updates) { const g = this.receivedGifts.find(x => x.id === id); if (g) { if ('eventId' in updates) updates.eventId = this.validateEventId(updates.eventId); Object.assign(g, updates); } this.saveData(); this.render(); }
     deleteReceivedGift(id) { this.receivedGifts = this.receivedGifts.filter(g => g.id !== id); this.saveData(); this.render(); }
     expandReceivedGift(id) { this.expandedReceivedGift = this.expandedReceivedGift === id ? null : id; this.editingReceivedGift = null; this.render(); }
     toggleEditReceivedGift(id) { this.editingReceivedGift = this.editingReceivedGift === id ? null : id; this.render(); }
