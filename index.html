@@ -1285,10 +1285,20 @@ class GiftTracker {
         document.body.appendChild(modal);
         modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     }
-    getPurchasedVsUnpurchased() {
-        const purchased = this.gifts.filter(g => g.status === 'purchased').length;
-        const unpurchased = this.gifts.filter(g => g.status === 'not purchased').length;
-        return { purchased, unpurchased, total: purchased + unpurchased };
+    getGiftStatusBreakdown() {
+        const order = ['idea', 'planned', 'bought', 'wrapped', 'gifted'];
+        const counts = {};
+        order.forEach(s => { counts[s] = 0; });
+        this.gifts.forEach(g => { if (counts[g.status] !== undefined) counts[g.status]++; });
+        const total = this.gifts.length;
+        return { breakdown: order.map(s => ({ status: s, label: s.charAt(0).toUpperCase() + s.slice(1), count: counts[s] })), total: total, giftedCount: counts.gifted };
+    }
+    getOutstandingCounts() {
+        return {
+            toBuy: this.gifts.filter(g => g.status === 'idea' || g.status === 'planned').length,
+            thankYous: this.receivedGifts.filter(g => !g.thankYouSent).length,
+            eventsNeedingGifts: this.events.filter(e => this.isEventUpcoming(e) && this.hasUnassignedPeople(e)).length
+        };
     }
     exportToCSV() {
         const escapeCSV = (str) => {
@@ -2135,31 +2145,42 @@ class GiftTracker {
     }
 
     renderReportingTab() {
+        const outstanding = this.getOutstandingCounts();
         const totalSpent = this.getTotalSpent();
         const avgBday = this.getAverageBirthdaySpend();
         const avgXmas = this.getAverageChristmasSpend();
         const topGiftees = this.getTopGiftees();
-        const {purchased, unpurchased, total} = this.getPurchasedVsUnpurchased();
-        const birthdays = this.events.filter(e => e.type === 'birthday').length;
-        const christmas = this.events.filter(e => e.type === 'christmas').length;
+        const { breakdown, total, giftedCount } = this.getGiftStatusBreakdown();
         const totalReceived = this.receivedGifts.reduce((s, g) => s + g.price, 0);
         const thankedCount = this.receivedGifts.filter(g => g.thankYouSent).length;
-        
-        let html = '<div class="grid grid-cols-2 gap-3 mb-4">';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent); text-transform: uppercase;">Total Spent</p><p class="text-2xl font-bold" style="color: var(--color-text);">£' + totalSpent.toFixed(2) + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Total Gifts</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + total + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Birthdays</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + birthdays + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Christmas</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + christmas + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-primary); text-transform: uppercase;">Avg Birthday</p><p class="text-xl font-bold" style="color: var(--color-text);">£' + avgBday + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-success); text-transform: uppercase;">Avg Christmas</p><p class="text-xl font-bold" style="color: var(--color-text);">£' + avgXmas + '</p></div>';
+        const topGivers = this.getTopGivers();
+
+        let html = '';
+
+        // ---- Needs Attention: actionable, tappable straight into the relevant filtered view ----
+        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">⚡ Needs Attention</p>';
+        html += '<div class="mb-4" style="display: flex; flex-direction: column; gap: 8px;">';
+        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'given\'; window.app.givenGroupBy = \'status\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">🛍️ Gifts still to buy or plan</span><span class="font-bold" style="color: ' + (outstanding.toBuy > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.toBuy + '</span></div>';
+        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'received\'; window.app.receivedThankYouFilter = \'no\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">✉️ Thank-yous outstanding</span><span class="font-bold" style="color: ' + (outstanding.thankYous > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.thankYous + '</span></div>';
+        html += '<div onclick="window.app.currentTab = \'events\'; window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">📅 Upcoming events needing gifts assigned</span><span class="font-bold" style="color: ' + (outstanding.eventsNeedingGifts > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.eventsNeedingGifts + '</span></div>';
         html += '</div>';
 
-        html += '<div class="grid grid-cols-2 gap-3 mb-4">';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent); text-transform: uppercase;">Total Received</p><p class="text-2xl font-bold" style="color: var(--color-text);">£' + totalReceived.toFixed(2) + '</p></div>';
-        html += '<div class="p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted); text-transform: uppercase;">Thank Yous Sent</p><p class="text-2xl font-bold" style="color: var(--color-text);">' + thankedCount + ' / ' + this.receivedGifts.length + '</p></div>';
+        // ---- Giving ----
+        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">🎁 Giving</p>';
+        html += '<div class="grid grid-cols-3 gap-2 mb-3">';
+        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Spent</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + totalSpent.toFixed(2) + '</p></div>';
+        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-primary);">Avg Birthday</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + avgBday + '</p></div>';
+        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-success);">Avg Christmas</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + avgXmas + '</p></div>';
         html += '</div>';
-        
-        html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Purchase Status</p><div class="flex items-center justify-between mb-2"><span style="color: var(--color-text);">Purchased</span><span class="font-bold" style="color: var(--color-success);">✓ ' + purchased + '</span></div><div class="flex items-center justify-between mb-3"><span style="color: var(--color-text);">Not Purchased</span><span class="font-bold" style="color: var(--color-warning);">○ ' + unpurchased + '</span></div><div class="w-full rounded-full h-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (total > 0 ? (purchased / total * 100) : 0) + '%; background-color: var(--color-success);"></div></div></div>';
+
+        if (total > 0) {
+            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Gift Status</p>';
+            breakdown.forEach(b => {
+                if (b.count === 0) return;
+                html += '<div class="flex items-center justify-between mb-1"><span style="color: var(--color-text); font-size: 13px;">' + b.label + '</span><span style="color: var(--color-text-muted); font-size: 13px;">' + b.count + '</span></div>';
+            });
+            html += '<div class="w-full rounded-full h-2 mt-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (total > 0 ? (giftedCount / total * 100) : 0) + '%; background-color: var(--color-success);"></div></div><p class="text-xs mt-1" style="color: var(--color-text-muted);">' + giftedCount + ' of ' + total + ' fully gifted</p></div>';
+        }
 
         if (topGiftees.length > 0) {
             html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Recipients</p>';
@@ -2169,16 +2190,24 @@ class GiftTracker {
             html += '</div>';
         }
 
-        const topGivers = this.getTopGivers();
-        if (topGivers.length > 0) {
-            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Givers</p>';
-            topGivers.forEach((giver, idx) => {
-                html += '<div onclick="window.app.showGiverHistoryModal(\'' + giver.giverType + '\', ' + giver.giverId + ')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < topGivers.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGivers.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giver.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giver.count + ' gift' + (giver.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giver.spent.toFixed(2) + '</p></div>';
-            });
+        // ---- Receiving ----
+        if (this.receivedGifts.length > 0 || this.getMeAdamPeopleNames().length > 0) {
+            html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">📥 Receiving</p>';
+            html += '<div class="grid grid-cols-2 gap-2 mb-3">';
+            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Received</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + totalReceived.toFixed(2) + '</p></div>';
+            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted);">Thank Yous Sent</p><p class="text-lg font-bold" style="color: var(--color-text);">' + thankedCount + ' / ' + this.receivedGifts.length + '</p></div>';
             html += '</div>';
+
+            if (topGivers.length > 0) {
+                html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Givers</p>';
+                topGivers.forEach((giver, idx) => {
+                    html += '<div onclick="window.app.showGiverHistoryModal(\'' + giver.giverType + '\', ' + giver.giverId + ')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < topGivers.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGivers.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giver.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giver.count + ' gift' + (giver.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giver.spent.toFixed(2) + '</p></div>';
+                });
+                html += '</div>';
+            }
         }
-        
-        html += '<div onclick="window.app.showPersonStatsModal()" class="p-4 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); text-align: center;"><p class="text-sm font-bold" style="color: var(--color-primary);">👤 Person-Level Stats</p><p class="text-xs" style="color: var(--color-text-muted);">Click to view average spending by person</p></div>';
+
+        html += '<div onclick="window.app.showPersonStatsModal()" class="p-4 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); text-align: center;"><p class="text-sm font-bold" style="color: var(--color-primary);">👤 Person-Level Stats</p><p class="text-xs" style="color: var(--color-text-muted);">Tap to view average spending by person</p></div>';
 
         return html;
     }
