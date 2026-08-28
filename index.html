@@ -9,19 +9,19 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         :root {
-            color-scheme: dark;
-            --color-bg: #1B1530;
-            --color-surface: #251E3F;
-            --color-primary: #8B5CF6;
+            color-scheme: light;
+            --color-bg: #F2F5F3;
+            --color-surface: #FFFFFF;
+            --color-primary: #7C5CFC;
             --color-primary-text: #FFFFFF;
-            --color-secondary: #322A4F;
-            --color-accent: #8B5CF6;
-            --color-text: #F5F3FF;
-            --color-text-muted: #A99FC9;
-            --color-border: #3A3159;
-            --color-success: #34D399;
-            --color-warning: #FBBF24;
-            --color-error: #F87171;
+            --color-secondary: #F0EEFC;
+            --color-accent: #7C5CFC;
+            --color-text: #1A1D29;
+            --color-text-muted: #6B7280;
+            --color-border: #E5E7EB;
+            --color-success: #10B981;
+            --color-warning: #F59E0B;
+            --color-error: #EF4444;
         }
         * { font-family: 'Inter', sans-serif; }
         body { background-color: var(--color-bg); }
@@ -62,7 +62,7 @@
         input:focus, select:focus, textarea:focus {
             outline: none;
             border-color: var(--color-primary) !important;
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
+            box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.15);
         }
 
         /* Add/Edit form containers — shadow instead of flat border, more breathing room */
@@ -130,7 +130,7 @@ window.alert = function(message) {
     const dialog = document.createElement('div');
     dialog.style.cssText = "background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: 'Inter', sans-serif;";
     const safeMessage = String(message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    dialog.innerHTML = '<p style="color: #2D3436; margin-bottom: 20px; white-space: pre-line; line-height: 1.5;">' + safeMessage + '</p><div style="text-align: right;"><button id="_nativeAlertOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
+    dialog.innerHTML = '<p style="color: #2D3436; margin-bottom: 20px; white-space: pre-line; line-height: 1.5;">' + safeMessage + '</p><div style="text-align: right;"><button id="_nativeAlertOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
     modal.appendChild(dialog);
     document.body.appendChild(modal);
     document.getElementById('_nativeAlertOk').onclick = () => modal.remove();
@@ -630,7 +630,7 @@ class GiftTracker {
         const dialog = document.createElement('div');
         dialog.style.cssText = 'background: white; border-radius: 12px; padding: 30px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
         const expandedEventId = this.expandedEvent; // Preserve the expanded event
-        dialog.innerHTML = html + '<div style="display: flex; gap: 10px; justify-content: flex-end;"><button onclick="document.querySelector(\'[data-modal-overlay]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #EDE9F7; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button onclick="const select = document.getElementById(\'statusSelect\'); const status = select.value; if(status) { const gift = window.app.gifts.find(g => g.id === ' + gid + '); if(gift) { gift.status = status; window.app.saveData(); window.app.expandedEvent = ' + expandedEventId + '; document.querySelector(\'[data-modal-overlay]\').remove(); window.app.render(); } } else { alert(\'Please select a status\'); }" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
+        dialog.innerHTML = html + '<div style="display: flex; gap: 10px; justify-content: flex-end;"><button onclick="document.querySelector(\'[data-modal-overlay]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #F0EEFC; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button onclick="const select = document.getElementById(\'statusSelect\'); const status = select.value; if(status) { const gift = window.app.gifts.find(g => g.id === ' + gid + '); if(gift) { gift.status = status; window.app.saveData(); window.app.expandedEvent = ' + expandedEventId + '; document.querySelector(\'[data-modal-overlay]\').remove(); window.app.render(); } } else { alert(\'Please select a status\'); }" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
         
         modal.setAttribute('data-modal-overlay', 'true');
         modal.appendChild(dialog);
@@ -713,8 +713,8 @@ class GiftTracker {
         const budget = e.totalBudget || 0;
         if (budget === 0) return '';
         if (spent === 0) return '<span style="background-color: var(--color-secondary); color: var(--color-text); padding: 2px 8px; border-radius: 4px; font-size: 12px;">No spending</span>';
-        if (spent > budget) return '<span style="background-color: rgba(248, 113, 113, 0.15); color: var(--color-error); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Over budget</span>';
-        return '<span style="background-color: rgba(52, 211, 153, 0.15); color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Within budget</span>';
+        if (spent > budget) return '<span style="background-color: rgba(239, 68, 68, 0.12); color: var(--color-error); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Over budget</span>';
+        return '<span style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px;">Within budget</span>';
     }
     toggleAddGift(personName, eventId) {
         this.addingGift = !this.addingGift;
@@ -944,7 +944,7 @@ class GiftTracker {
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         const dialog = document.createElement('div');
         dialog.style.cssText = 'background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
-        dialog.innerHTML = (title ? '<h3 style="margin-bottom: 12px; color: #2D3436;">' + title + '</h3>' : '') + '<p style="color: #2D3436; margin-bottom: 20px; white-space: pre-line; line-height: 1.5;">' + message + '</p><div style="display: flex; gap: 8px; justify-content: flex-end;"><button id="_confirmCancel" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #EDE9F7; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button id="_confirmOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">Continue</button></div>';
+        dialog.innerHTML = (title ? '<h3 style="margin-bottom: 12px; color: #2D3436;">' + title + '</h3>' : '') + '<p style="color: #2D3436; margin-bottom: 20px; white-space: pre-line; line-height: 1.5;">' + message + '</p><div style="display: flex; gap: 8px; justify-content: flex-end;"><button id="_confirmCancel" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #F0EEFC; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button id="_confirmOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">Continue</button></div>';
         modal.appendChild(dialog);
         document.body.appendChild(modal);
         document.getElementById('_confirmCancel').onclick = () => modal.remove();
@@ -960,7 +960,7 @@ class GiftTracker {
         const inputHtml = multiline
             ? '<textarea id="_promptInput" rows="8" style="width: 100%; padding: 10px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 6px; font-size: 14px; font-family: monospace; box-sizing: border-box;"></textarea>'
             : '<input type="text" id="_promptInput" value="' + safeInitial + '" style="width: 100%; padding: 10px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 6px; font-size: 14px; box-sizing: border-box;">';
-        dialog.innerHTML = (title ? '<h3 style="margin-bottom: 12px; color: #2D3436;">' + title + '</h3>' : '') + (labelText ? '<label style="display: block; margin-bottom: 8px; color: #2D3436; font-size: 13px;">' + labelText + '</label>' : '') + inputHtml + '<div style="display: flex; gap: 8px; justify-content: flex-end;"><button id="_promptCancel" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #EDE9F7; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button id="_promptOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
+        dialog.innerHTML = (title ? '<h3 style="margin-bottom: 12px; color: #2D3436;">' + title + '</h3>' : '') + (labelText ? '<label style="display: block; margin-bottom: 8px; color: #2D3436; font-size: 13px;">' + labelText + '</label>' : '') + inputHtml + '<div style="display: flex; gap: 8px; justify-content: flex-end;"><button id="_promptCancel" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #F0EEFC; color: #2D3436; cursor: pointer; font-weight: 500;">Cancel</button><button id="_promptOk" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">OK</button></div>';
         modal.appendChild(dialog);
         document.body.appendChild(modal);
         const inputEl = document.getElementById('_promptInput');
@@ -1013,8 +1013,8 @@ class GiftTracker {
             '<select id="merge_target" style="width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 4px;">' + options.map((o, i) => '<option value="' + i + '">' + o.name + (o.type === 'person' ? ' (Person)' : ' (Other Giver)') + '</option>').join('') + '</select>' +
             '<p style="font-size: 12px; color: #636E72; margin-bottom: 16px;">All gifts logged from "' + giver.name + '" will be reassigned to the selected entry. This can\'t be undone.</p>' +
             '<div style="display: flex; gap: 8px; justify-content: flex-end;">' +
-            '<button id="merge_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #EDE9F7; cursor: pointer;">Cancel</button>' +
-            '<button id="merge_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer;">Merge</button>' +
+            '<button id="merge_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #F0EEFC; cursor: pointer;">Cancel</button>' +
+            '<button id="merge_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer;">Merge</button>' +
             '</div>';
         modal.appendChild(dialog);
         document.body.appendChild(modal);
@@ -1049,8 +1049,8 @@ class GiftTracker {
             '<select id="cvt_cat" style="width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #DFE6E9; border-radius: 4px;"><option value="friend">Friend</option><option value="family">Family</option></select>' +
             '<p style="font-size: 12px; color: #636E72; margin-bottom: 16px;">All gifts logged from "' + giver.name + '" will be re-linked to the new Person.</p>' +
             '<div style="display: flex; gap: 8px; justify-content: flex-end;">' +
-            '<button id="cvt_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #EDE9F7; cursor: pointer;">Cancel</button>' +
-            '<button id="cvt_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer;">Convert</button>' +
+            '<button id="cvt_cancel" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #F0EEFC; cursor: pointer;">Cancel</button>' +
+            '<button id="cvt_save" style="padding: 8px 16px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer;">Convert</button>' +
             '</div>';
         modal.appendChild(dialog);
         document.body.appendChild(modal);
@@ -1385,7 +1385,7 @@ class GiftTracker {
             });
             content += '</table>';
         }
-        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-giver-history]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
+        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-giver-history]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         const dialog = document.createElement('div');
@@ -1415,7 +1415,7 @@ class GiftTracker {
             });
             content += '</table>';
         }
-        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-recipient-history]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
+        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-recipient-history]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         const dialog = document.createElement('div');
@@ -1448,7 +1448,7 @@ class GiftTracker {
             content += '</table>';
             content += '<p style="margin-top: 12px; color: #636E72; font-size: 13px;">Average: £' + (runningTotal / events.length).toFixed(2) + ' across ' + events.length + (eventType === 'christmas' ? (events.length > 1 ? ' years' : ' year') : (events.length > 1 ? ' birthdays' : ' birthday')) + '</p>';
         }
-        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-event-spend]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
+        content += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-event-spend]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
         const dialog = document.createElement('div');
@@ -1942,7 +1942,10 @@ class GiftTracker {
             const spent = pgifts.reduce((s, g) => s + g.price, 0);
             const nextEvent = this.getNextEvent(p);
             const daysUntil = this.getDaysUntil(p);
-            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandPerson(' + p.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + p.fullName + '</h3><p class="text-xs mt-1" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em;">' + (p.category === 'family' ? 'Family' : 'Friend') + (p.messageOnly ? ' · Message Only' : '') + (p.fyiOnly ? ' · FYI Only' : '') + (!p.messageOnly && !p.fyiOnly ? ' · Gift-tracked' : '') + (p.includeInChristmas ? ' · Christmas' : '') + '</p><p class="text-sm mt-1" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button>';
+            const avatarColors = ['#4C6EF5', '#7C5CFC', '#12B886', '#F76707', '#E8590C', '#E64980', '#1098AD'];
+            const avatarColor = avatarColors[Math.abs(p.fullName.split('').reduce((h, c) => h + c.charCodeAt(0), 0)) % avatarColors.length];
+            const avatarInitial = p.fullName.trim().charAt(0).toUpperCase();
+            html += '<div class="mb-3 swipe-item" data-swipe-item data-person-id="' + p.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1" style="display: flex; gap: 12px; align-items: flex-start;"><div style="width: 42px; height: 42px; border-radius: 50%; background-color: ' + avatarColor + '; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 17px; flex-shrink: 0;">' + avatarInitial + '</div><div style="flex: 1; min-width: 0;"><button onclick="window.app.expandPerson(' + p.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + p.fullName + '</h3><p class="text-xs mt-1" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em;">' + (p.category === 'family' ? 'Family' : 'Friend') + (p.messageOnly ? ' · Message Only' : '') + (p.fyiOnly ? ' · FYI Only' : '') + (!p.messageOnly && !p.fyiOnly ? ' · Gift-tracked' : '') + (p.includeInChristmas ? ' · Christmas' : '') + '</p><p class="text-sm mt-1" style="color: var(--color-text-muted);">' + nextEvent + ' (in ' + daysUntil + ' days)</p></button></div>';
             if (isExp && !this.groupEditMode) {
                 const isEdit = this.editingPerson === p.id;
                 if (isEdit) {
@@ -1983,12 +1986,23 @@ class GiftTracker {
         const outstanding = this.getOutstandingCounts();
         let html = '';
 
+        const currentYear = new Date().getFullYear();
+        const givenGiftsThisYear = this.gifts.filter(g => {
+            const e = this.events.find(ev => ev.id === g.eventId);
+            if (!e) return false;
+            return parseInt(e.date.split('-')[2]) === currentYear;
+        });
+        const spentThisYear = givenGiftsThisYear.reduce((s, g) => s + (g.price || 0), 0);
+        const eventsThisYearCount = new Set(givenGiftsThisYear.map(g => g.eventId)).size;
+        html += '<div class="mb-6" style="background: linear-gradient(135deg, var(--color-primary), #B794F6); border-radius: 20px; padding: 24px; color: white; box-shadow: 0 6px 20px rgba(124,92,252,0.35);"><p style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.85; margin: 0 0 8px 0;">Spent on Gifts This Year</p><p style="font-size: 40px; font-weight: 800; margin: 0; line-height: 1;">£' + spentThisYear.toFixed(2) + '</p><p style="font-size: 14px; margin: 10px 0 0 0; opacity: 0.9;">' + givenGiftsThisYear.length + ' gift' + (givenGiftsThisYear.length !== 1 ? 's' : '') + ' across ' + eventsThisYearCount + ' event' + (eventsThisYearCount !== 1 ? 's' : '') + '</p></div>';
+
+        const attentionItems = [
+            { letter: 'G', color: '#7C5CFC', label: 'Gifts still to buy or plan', value: outstanding.toBuy, action: "window.app.currentTab = 'gifts'; window.app.showGiftsView = 'given'; window.app.givenGroupBy = 'status'; window.app.render()" },
+            { letter: 'T', color: '#F59E0B', label: 'Thank-yous outstanding', value: outstanding.thankYous, action: "window.app.currentTab = 'gifts'; window.app.showGiftsView = 'received'; window.app.receivedThankYouFilter = 'no'; window.app.render()" },
+            { letter: 'E', color: '#EF4444', label: 'Events needing gifts assigned', value: outstanding.eventsNeedingGifts, action: "window.app.currentTab = 'events'; window.app.showEventType = 'upcoming'; window.app.showEventReady = 'todo'; window.app.showEventCompleted = 'all'; window.app.render()" }
+        ];
         html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Needs Attention</p>';
-        html += '<div class="mb-6" style="display: flex; flex-direction: column; gap: 8px;">';
-        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'given\'; window.app.givenGroupBy = \'status\'; window.app.render()" class="p-3 rounded-lg cursor-pointer" style="background-color: var(--color-surface); box-shadow: 0 1px 2px rgba(16,24,40,0.06); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Gifts still to buy or plan</span><span class="font-bold" style="color: ' + (outstanding.toBuy > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.toBuy + '</span></div>';
-        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'received\'; window.app.receivedThankYouFilter = \'no\'; window.app.render()" class="p-3 rounded-lg cursor-pointer" style="background-color: var(--color-surface); box-shadow: 0 1px 2px rgba(16,24,40,0.06); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Thank-yous outstanding</span><span class="font-bold" style="color: ' + (outstanding.thankYous > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.thankYous + '</span></div>';
-        html += '<div onclick="window.app.currentTab = \'events\'; window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="p-3 rounded-lg cursor-pointer" style="background-color: var(--color-surface); box-shadow: 0 1px 2px rgba(16,24,40,0.06); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Upcoming events needing gifts assigned</span><span class="font-bold" style="color: ' + (outstanding.eventsNeedingGifts > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.eventsNeedingGifts + '</span></div>';
-        html += '</div>';
+        html += '<div class="mb-6" style="background-color: var(--color-surface); border-radius: 16px; padding: 4px 8px; box-shadow: 0 1px 2px rgba(16,24,40,0.06);">' + attentionItems.map((item, i) => '<div onclick="' + item.action + '" style="display: flex; align-items: center; gap: 12px; padding: 12px 4px; cursor: pointer; ' + (i < attentionItems.length - 1 ? 'border-bottom: 1px solid var(--color-border);' : '') + '"><div style="width: 38px; height: 38px; border-radius: 50%; background-color: ' + item.color + '; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; flex-shrink: 0;">' + item.letter + '</div><span style="flex: 1; color: var(--color-text); font-size: 14px;">' + item.label + '</span><span style="font-weight: 700; font-size: 18px; color: ' + (item.value > 0 ? item.color : 'var(--color-success)') + ';">' + item.value + '</span></div>').join('') + '</div>';
 
         const now = new Date(); now.setHours(0, 0, 0, 0);
         const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() + this.homeDaysAhead);
@@ -2019,8 +2033,8 @@ class GiftTracker {
                     const egifts = this.getGiftsForEvent(e.id);
                     const needsGifts = this.hasUnassignedPeople(e);
                     statusHtml = needsGifts
-                        ? '<span style="background-color: rgba(251, 191, 36, 0.15); color: var(--color-warning); padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Needs gifts</span>'
-                        : '<span style="background-color: rgba(52, 211, 153, 0.15); color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Ready</span>';
+                        ? '<span style="background-color: rgba(245, 158, 11, 0.12); color: var(--color-warning); padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Needs gifts</span>'
+                        : '<span style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Ready</span>';
                     statusHtml += ' <span style="color: var(--color-text-muted); font-size: 12px;">' + egifts.length + ' gift' + (egifts.length !== 1 ? 's' : '') + '</span>';
                 }
                 const dayLabel = daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : 'In ' + daysUntil + ' days';
@@ -2475,7 +2489,7 @@ class GiftTracker {
             modalContent += '</table>';
         }
         
-        modalContent += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-person-stats]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #8B5CF6; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
+        modalContent += '<div style="margin-top: 20px; text-align: right;"><button onclick="document.querySelector(\'[data-modal-person-stats]\').remove();" style="padding: 10px 20px; border: none; border-radius: 6px; background-color: #7C5CFC; color: white; cursor: pointer; font-weight: 500;">Close</button></div></div>';
         
         const modal = document.createElement('div');
         modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
