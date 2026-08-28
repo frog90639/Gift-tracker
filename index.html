@@ -258,10 +258,69 @@ class GiftTracker {
         this.showSearch = false;
         this.showSidebar = false;
         this.showQuickAdd = false;
+        this.navHistory = [];
+        this.navFuture = [];
+        this.reportingYear = new Date().getFullYear();
+        this.reportingAllTime = false;
         this.render();
+        this.initSwipeNavigation();
     }
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
     saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers, receivedGiftsPersonIds: this.receivedGiftsPersonIds, homeDaysAhead: this.homeDaysAhead})); } catch(e) {} }
+    snapshotState() {
+        return { currentTab: this.currentTab, expandedEvent: this.expandedEvent, expandedPerson: this.expandedPerson, showGiftsView: this.showGiftsView };
+    }
+    restoreState(s) {
+        this.currentTab = s.currentTab;
+        this.expandedEvent = s.expandedEvent;
+        this.expandedPerson = s.expandedPerson;
+        this.showGiftsView = s.showGiftsView;
+        this.showSidebar = false;
+        this.render();
+    }
+    pushHistory() {
+        this.navHistory.push(this.snapshotState());
+        if (this.navHistory.length > 50) this.navHistory.shift();
+        this.navFuture = [];
+    }
+    goBack() {
+        if (this.navHistory.length === 0) return;
+        const prev = this.navHistory.pop();
+        this.navFuture.push(this.snapshotState());
+        this.restoreState(prev);
+    }
+    goForward() {
+        if (this.navFuture.length === 0) return;
+        const next = this.navFuture.pop();
+        this.navHistory.push(this.snapshotState());
+        this.restoreState(next);
+    }
+    initSwipeNavigation() {
+        // Edge swipes only (start within ~24px of the left/right screen edge) so this never
+        // conflicts with the per-card swipe-to-reveal-edit/delete gesture, which starts on a card.
+        const EDGE_ZONE = 24;
+        const THRESHOLD = 70;
+        let startX = 0, startY = 0, tracking = null;
+        document.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            startX = t.screenX;
+            startY = t.screenY;
+            if (startX <= EDGE_ZONE) tracking = 'back';
+            else if (startX >= window.innerWidth - EDGE_ZONE) tracking = 'forward';
+            else tracking = null;
+        }, { passive: true });
+        document.addEventListener('touchend', (e) => {
+            if (!tracking) return;
+            const t = e.changedTouches[0];
+            const dx = t.screenX - startX;
+            const dy = Math.abs(t.screenY - startY);
+            if (dy < 60) {
+                if (tracking === 'back' && dx > THRESHOLD) window.app.goBack();
+                else if (tracking === 'forward' && dx < -THRESHOLD) window.app.goForward();
+            }
+            tracking = null;
+        }, { passive: true });
+    }
     initSwipeHandlers() {
         setTimeout(() => {
             document.querySelectorAll('[data-swipe-item]').forEach(el => {
@@ -1335,40 +1394,6 @@ class GiftTracker {
     
     getSortedEvents() { return [...this.events].sort((a, b) => { const [dA, mA, yA] = a.date.split('-'); const [dB, mB, yB] = b.date.split('-'); return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB)); }); }
     getMonthYear(dateStr) { if (!dateStr) return ''; const p = dateStr.split('-'); return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).toLocaleDateString('en-US', {month: 'long', year: 'numeric'}); }
-    getTotalSpent() { return this.gifts.reduce((s, g) => s + g.price, 0); }
-    getAverageBirthdaySpend() {
-        const birthdayEvents = this.events.filter(e => e.type === 'birthday');
-        if (birthdayEvents.length === 0) return 0;
-        const spent = birthdayEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0);
-        return (spent / birthdayEvents.length).toFixed(2);
-    }
-    getAverageChristmasSpend() {
-        const christmasEvents = this.events.filter(e => e.type === 'christmas');
-        if (christmasEvents.length === 0) return 0;
-        const spent = christmasEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0);
-        return (spent / christmasEvents.length).toFixed(2);
-    }
-    getTopGiftees() {
-        const gpp = {};
-        this.gifts.forEach(g => {
-            if (g.personName) {
-                if (!gpp[g.personName]) gpp[g.personName] = { count: 0, spent: 0 };
-                gpp[g.personName].count++;
-                gpp[g.personName].spent += g.price;
-            }
-        });
-        return Object.entries(gpp).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.spent - a.spent).slice(0, 5);
-    }
-    getTopGivers() {
-        const stats = {};
-        this.receivedGifts.forEach(g => {
-            const key = g.giverType + ':' + g.giverId;
-            if (!stats[key]) stats[key] = { giverType: g.giverType, giverId: g.giverId, count: 0, spent: 0 };
-            stats[key].count++;
-            stats[key].spent += g.price;
-        });
-        return Object.values(stats).map(s => ({ ...s, name: this.getGiverInfo({ giverType: s.giverType, giverId: s.giverId }).name })).sort((a, b) => b.spent - a.spent).slice(0, 5);
-    }
     showGiverHistoryModal(giverType, giverId) {
         const name = this.getGiverInfo({ giverType: giverType, giverId: giverId }).name;
         const gifts = this.receivedGifts.filter(g => g.giverType === giverType && g.giverId === giverId).sort((a, b) => (a.dateReceived || '').localeCompare(b.dateReceived || ''));
@@ -1459,19 +1484,80 @@ class GiftTracker {
         document.body.appendChild(modal);
         modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
     }
-    getGiftStatusBreakdown() {
-        const order = ['idea', 'planned', 'bought', 'wrapped', 'gifted'];
-        const counts = {};
-        order.forEach(s => { counts[s] = 0; });
-        this.gifts.forEach(g => { if (counts[g.status] !== undefined) counts[g.status]++; });
-        const total = this.gifts.length;
-        return { breakdown: order.map(s => ({ status: s, label: s.charAt(0).toUpperCase() + s.slice(1), count: counts[s] })), total: total, giftedCount: counts.gifted };
-    }
     getOutstandingCounts() {
         return {
             toBuy: this.gifts.filter(g => g.status === 'idea' || g.status === 'planned').length,
             thankYous: this.receivedGifts.filter(g => !g.thankYouSent).length,
             eventsNeedingGifts: this.events.filter(e => this.isEventUpcoming(e) && this.hasUnassignedPeople(e)).length
+        };
+    }
+    getAvailableReportingYears() {
+        const years = new Set(this.events.map(e => parseInt(e.date.split('-')[2])));
+        years.add(new Date().getFullYear());
+        return Array.from(years).sort((a, b) => b - a);
+    }
+    changeReportingYear(delta) {
+        this.reportingYear += delta;
+        this.render();
+    }
+    toggleReportingAllTime() {
+        this.reportingAllTime = !this.reportingAllTime;
+        this.render();
+    }
+    getReportingStats(year) {
+        const events = year ? this.events.filter(e => parseInt(e.date.split('-')[2]) === year) : this.events;
+        const eventIds = new Set(events.map(e => e.id));
+        const gifts = year ? this.gifts.filter(g => eventIds.has(g.eventId)) : this.gifts;
+        const receivedGifts = year ? this.receivedGifts.filter(g => eventIds.has(g.eventId)) : this.receivedGifts;
+
+        const totalSpent = gifts.reduce((s, g) => s + g.price, 0);
+        const totalBudgeted = events.reduce((s, e) => s + (e.totalBudget || 0), 0);
+
+        const birthdayEvents = events.filter(e => e.type === 'birthday');
+        const avgBday = birthdayEvents.length ? (birthdayEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0) / birthdayEvents.length).toFixed(2) : 0;
+        const christmasEvents = events.filter(e => e.type === 'christmas');
+        const avgXmas = christmasEvents.length ? (christmasEvents.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0) / christmasEvents.length).toFixed(2) : 0;
+
+        const order = ['idea', 'planned', 'bought', 'wrapped', 'gifted'];
+        const counts = {}; order.forEach(s => { counts[s] = 0; });
+        gifts.forEach(g => { if (counts[g.status] !== undefined) counts[g.status]++; });
+        const giftStatus = { breakdown: order.map(s => ({ status: s, label: s.charAt(0).toUpperCase() + s.slice(1), count: counts[s] })), total: gifts.length, giftedCount: counts.gifted };
+
+        const gpp = {};
+        gifts.forEach(g => {
+            if (g.personName) {
+                if (!gpp[g.personName]) gpp[g.personName] = { count: 0, spent: 0 };
+                gpp[g.personName].count++;
+                gpp[g.personName].spent += g.price;
+            }
+        });
+        const topGiftees = Object.entries(gpp).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.spent - a.spent).slice(0, 5);
+
+        const totalReceived = receivedGifts.reduce((s, g) => s + g.price, 0);
+        const thankedCount = receivedGifts.filter(g => g.thankYouSent).length;
+        const giverStats = {};
+        receivedGifts.forEach(g => {
+            const key = g.giverType + ':' + g.giverId;
+            if (!giverStats[key]) giverStats[key] = { giverType: g.giverType, giverId: g.giverId, count: 0, spent: 0 };
+            giverStats[key].count++;
+            giverStats[key].spent += g.price;
+        });
+        const topGivers = Object.values(giverStats).map(s => ({ ...s, name: this.getGiverInfo({ giverType: s.giverType, giverId: s.giverId }).name })).sort((a, b) => b.spent - a.spent).slice(0, 5);
+
+        let budgetWithin = 0, budgetOver = 0, budgetNoSpend = 0, noBudgetSet = 0;
+        events.forEach(e => {
+            const spent = this.getGiftsForEvent(e.id).reduce((s, g) => s + g.price, 0);
+            const budget = e.totalBudget || 0;
+            if (budget === 0) { noBudgetSet++; return; }
+            if (spent === 0) budgetNoSpend++;
+            else if (spent > budget) budgetOver++;
+            else budgetWithin++;
+        });
+
+        return {
+            eventsCount: events.length, totalSpent, totalBudgeted, avgBday, avgXmas, giftStatus, topGiftees,
+            totalReceived, thankedCount, receivedCount: receivedGifts.length, topGivers,
+            budgetWithin, budgetOver, budgetNoSpend, noBudgetSet
         };
     }
     exportToCSV() {
@@ -1955,7 +2041,15 @@ class GiftTracker {
                     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                     const [day, month] = p.birthday.split('-');
                     const formattedBday = day + ' ' + months[parseInt(month) - 1] + ' ' + p.birthYear;
-                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">CATEGORY</p><p style="color: var(--color-text);">' + (p.category ? (p.category.charAt(0).toUpperCase() + p.category.slice(1)) : 'Friend') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">BIRTHDAY</p><p style="color: var(--color-text);">' + formattedBday + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">BIRTHDAY BUDGET</p><p style="color: var(--color-text);">£' + (p.birthdayBudget || '-') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">CHRISTMAS BUDGET</p><p style="color: var(--color-text);">£' + (p.christmasBudget || '-') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">LIKES</p><p style="color: var(--color-text);">' + (p.likes || 'Not specified') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">DISLIKES</p><p style="color: var(--color-text);">' + (p.dislikes || 'Not specified') + '</p></div><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">NOTES</p><p style="color: var(--color-text);">' + (p.notes || 'No notes') + '</p></div>';
+                    const fieldRow = (label, value) => '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-1" style="color: var(--color-text-muted);">' + label + '</p><p style="color: var(--color-text);">' + value + '</p></div>';
+                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);">'
+                        + fieldRow('CATEGORY', p.category ? (p.category.charAt(0).toUpperCase() + p.category.slice(1)) : 'Friend')
+                        + fieldRow('BIRTHDAY', formattedBday)
+                        + (p.birthdayBudget ? fieldRow('BIRTHDAY BUDGET', '£' + p.birthdayBudget) : '')
+                        + (p.christmasBudget ? fieldRow('CHRISTMAS BUDGET', '£' + p.christmasBudget) : '')
+                        + (p.likes ? fieldRow('LIKES', p.likes) : '')
+                        + (p.dislikes ? fieldRow('DISLIKES', p.dislikes) : '')
+                        + (p.notes ? fieldRow('NOTES', p.notes) : '');
                     html += '<div class="mb-2"><input type="checkbox" id="xmas_' + p.id + '" ' + (p.includeInChristmas ? 'checked' : '') + ' onchange="window.app.updatePerson(' + p.id + ', {includeInChristmas: this.checked})"><label for="xmas_' + p.id + '" style="color: var(--color-text);"> Include in Christmas</label></div>';
                     if (pgifts.length > 0) {
                         html += '<div class="p-2 rounded border mb-2" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs mb-2" style="color: var(--color-text-muted);">GIFTS (£' + spent.toFixed(2) + ')</p>';
@@ -1986,24 +2080,6 @@ class GiftTracker {
         const outstanding = this.getOutstandingCounts();
         let html = '';
 
-        const currentYear = new Date().getFullYear();
-        const givenGiftsThisYear = this.gifts.filter(g => {
-            const e = this.events.find(ev => ev.id === g.eventId);
-            if (!e) return false;
-            return parseInt(e.date.split('-')[2]) === currentYear;
-        });
-        const spentThisYear = givenGiftsThisYear.reduce((s, g) => s + (g.price || 0), 0);
-        const eventsThisYearCount = new Set(givenGiftsThisYear.map(g => g.eventId)).size;
-        html += '<div class="mb-6" style="background: linear-gradient(135deg, var(--color-primary), #B794F6); border-radius: 20px; padding: 24px; color: white; box-shadow: 0 6px 20px rgba(124,92,252,0.35);"><p style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.85; margin: 0 0 8px 0;">Spent on Gifts This Year</p><p style="font-size: 40px; font-weight: 800; margin: 0; line-height: 1;">£' + spentThisYear.toFixed(2) + '</p><p style="font-size: 14px; margin: 10px 0 0 0; opacity: 0.9;">' + givenGiftsThisYear.length + ' gift' + (givenGiftsThisYear.length !== 1 ? 's' : '') + ' across ' + eventsThisYearCount + ' event' + (eventsThisYearCount !== 1 ? 's' : '') + '</p></div>';
-
-        const attentionItems = [
-            { letter: 'G', color: '#7C5CFC', label: 'Gifts still to buy or plan', value: outstanding.toBuy, action: "window.app.currentTab = 'gifts'; window.app.showGiftsView = 'given'; window.app.givenGroupBy = 'status'; window.app.render()" },
-            { letter: 'T', color: '#F59E0B', label: 'Thank-yous outstanding', value: outstanding.thankYous, action: "window.app.currentTab = 'gifts'; window.app.showGiftsView = 'received'; window.app.receivedThankYouFilter = 'no'; window.app.render()" },
-            { letter: 'E', color: '#EF4444', label: 'Events needing gifts assigned', value: outstanding.eventsNeedingGifts, action: "window.app.currentTab = 'events'; window.app.showEventType = 'upcoming'; window.app.showEventReady = 'todo'; window.app.showEventCompleted = 'all'; window.app.render()" }
-        ];
-        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Needs Attention</p>';
-        html += '<div class="mb-6" style="background-color: var(--color-surface); border-radius: 16px; padding: 4px 8px; box-shadow: 0 1px 2px rgba(16,24,40,0.06);">' + attentionItems.map((item, i) => '<div onclick="' + item.action + '" style="display: flex; align-items: center; gap: 12px; padding: 12px 4px; cursor: pointer; ' + (i < attentionItems.length - 1 ? 'border-bottom: 1px solid var(--color-border);' : '') + '"><div style="width: 38px; height: 38px; border-radius: 50%; background-color: ' + item.color + '; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; flex-shrink: 0;">' + item.letter + '</div><span style="flex: 1; color: var(--color-text); font-size: 14px;">' + item.label + '</span><span style="font-weight: 700; font-size: 18px; color: ' + (item.value > 0 ? item.color : 'var(--color-success)') + ';">' + item.value + '</span></div>').join('') + '</div>';
-
         const now = new Date(); now.setHours(0, 0, 0, 0);
         const cutoff = new Date(now); cutoff.setDate(cutoff.getDate() + this.homeDaysAhead);
         const upcoming = this.getSortedEvents().filter(e => {
@@ -2011,6 +2087,28 @@ class GiftTracker {
             const ed = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
             return ed >= now && ed <= cutoff;
         });
+        const eventsNeedingGiftsInWindow = upcoming.filter(e => this.hasUnassignedPeople(e)).length;
+
+        const attentionItems = [
+            { letter: 'T', color: '#F59E0B', label: 'Thank-yous outstanding', value: outstanding.thankYous, action: "window.app.pushHistory(); window.app.currentTab = 'gifts'; window.app.showGiftsView = 'received'; window.app.receivedThankYouFilter = 'no'; window.app.render()" },
+            { letter: 'E', color: '#EF4444', label: 'Events in next ' + this.homeDaysAhead + ' days needing gifts', value: eventsNeedingGiftsInWindow, action: "window.app.pushHistory(); window.app.currentTab = 'events'; window.app.showEventType = 'upcoming'; window.app.showEventReady = 'todo'; window.app.showEventCompleted = 'all'; window.app.render()" },
+            { letter: 'G', color: '#7C5CFC', label: 'Gifts still to buy or plan', value: outstanding.toBuy, action: "window.app.pushHistory(); window.app.currentTab = 'gifts'; window.app.showGiftsView = 'given'; window.app.givenGroupBy = 'status'; window.app.render()" }
+        ];
+        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Needs Attention</p>';
+        html += '<div class="mb-6" style="background-color: var(--color-surface); border-radius: 16px; padding: 4px 8px; box-shadow: 0 1px 2px rgba(16,24,40,0.06);">' + attentionItems.map((item, i) => '<div onclick="' + item.action + '" style="display: flex; align-items: center; gap: 12px; padding: 12px 4px; cursor: pointer; ' + (i < attentionItems.length - 1 ? 'border-bottom: 1px solid var(--color-border);' : '') + '"><div style="width: 38px; height: 38px; border-radius: 50%; background-color: ' + item.color + '; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; flex-shrink: 0;">' + item.letter + '</div><span style="flex: 1; color: var(--color-text); font-size: 14px;">' + item.label + '</span><span style="font-weight: 700; font-size: 18px; color: ' + (item.value > 0 ? item.color : 'var(--color-success)') + ';">' + item.value + '</span></div>').join('') + '</div>';
+
+        if (upcoming.length > 0) {
+            const upcomingBudgeted = upcoming.reduce((s, e) => s + (e.totalBudget || 0), 0);
+            const upcomingSpent = upcoming.reduce((s, e) => s + this.getGiftsForEvent(e.id).reduce((s2, g) => s2 + g.price, 0), 0);
+            const overBudget = upcomingBudgeted > 0 && upcomingSpent > upcomingBudgeted;
+            html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Upcoming Spend</p>';
+            html += '<div class="mb-6 p-4 rounded-lg" style="background-color: var(--color-surface); box-shadow: 0 1px 2px rgba(16,24,40,0.06);"><div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: ' + (upcomingBudgeted > 0 ? '10px' : '0') + ';"><div><p style="color: var(--color-text-muted); font-size: 12px; margin: 0;">Budgeted for next ' + this.homeDaysAhead + ' days</p><p style="color: var(--color-text); font-size: 28px; font-weight: 800; margin: 4px 0 0 0;">£' + upcomingBudgeted.toFixed(2) + '</p></div><div style="text-align: right;"><p style="color: var(--color-text-muted); font-size: 12px; margin: 0;">Spent so far</p><p style="color: ' + (overBudget ? 'var(--color-error)' : 'var(--color-text)') + '; font-size: 16px; font-weight: 700; margin: 4px 0 0 0;">£' + upcomingSpent.toFixed(2) + '</p></div></div>';
+            if (upcomingBudgeted > 0) {
+                const pct = Math.min(100, (upcomingSpent / upcomingBudgeted) * 100);
+                html += '<div class="w-full rounded-full h-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + pct + '%; background-color: ' + (overBudget ? 'var(--color-error)' : 'var(--color-success)') + ';"></div></div>' + (overBudget ? '<p class="text-xs mt-1" style="color: var(--color-error);">£' + (upcomingSpent - upcomingBudgeted).toFixed(2) + ' over budget</p>' : '');
+            }
+            html += '</div>';
+        }
 
         html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Upcoming in the next ' + this.homeDaysAhead + ' days</p>';
         if (upcoming.length === 0) {
@@ -2048,6 +2146,7 @@ class GiftTracker {
     goToEvent(id) {
         const e = this.events.find(ev => ev.id === id);
         if (!e) return;
+        this.pushHistory();
         this.currentTab = 'events';
         this.showEventType = this.isEventUpcoming(e) ? 'upcoming' : 'historic';
         this.showEventReady = 'all';
@@ -2388,68 +2487,105 @@ class GiftTracker {
 
     renderReportingTab() {
         const outstanding = this.getOutstandingCounts();
-        const totalSpent = this.getTotalSpent();
-        const avgBday = this.getAverageBirthdaySpend();
-        const avgXmas = this.getAverageChristmasSpend();
-        const topGiftees = this.getTopGiftees();
-        const { breakdown, total, giftedCount } = this.getGiftStatusBreakdown();
-        const totalReceived = this.receivedGifts.reduce((s, g) => s + g.price, 0);
-        const thankedCount = this.receivedGifts.filter(g => g.thankYouSent).length;
-        const topGivers = this.getTopGivers();
+        const year = this.reportingAllTime ? null : this.reportingYear;
+        const s = this.getReportingStats(year);
 
         let html = '';
 
-        // ---- Needs Attention: actionable, tappable straight into the relevant filtered view ----
-        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Needs Attention</p>';
-        html += '<div class="mb-4" style="display: flex; flex-direction: column; gap: 8px;">';
-        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'given\'; window.app.givenGroupBy = \'status\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Gifts still to buy or plan</span><span class="font-bold" style="color: ' + (outstanding.toBuy > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.toBuy + '</span></div>';
-        html += '<div onclick="window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'received\'; window.app.receivedThankYouFilter = \'no\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Thank-yous outstanding</span><span class="font-bold" style="color: ' + (outstanding.thankYous > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.thankYous + '</span></div>';
-        html += '<div onclick="window.app.currentTab = \'events\'; window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Upcoming events needing gifts assigned</span><span class="font-bold" style="color: ' + (outstanding.eventsNeedingGifts > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.eventsNeedingGifts + '</span></div>';
+        // ---- Needs Attention: current, actionable items - not affected by year navigation ----
+        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Needs Attention Now</p>';
+        html += '<div class="mb-6" style="display: flex; flex-direction: column; gap: 8px;">';
+        html += '<div onclick="window.app.pushHistory(); window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'given\'; window.app.givenGroupBy = \'status\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Gifts still to buy or plan</span><span class="font-bold" style="color: ' + (outstanding.toBuy > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.toBuy + '</span></div>';
+        html += '<div onclick="window.app.pushHistory(); window.app.currentTab = \'gifts\'; window.app.showGiftsView = \'received\'; window.app.receivedThankYouFilter = \'no\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Thank-yous outstanding</span><span class="font-bold" style="color: ' + (outstanding.thankYous > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.thankYous + '</span></div>';
+        html += '<div onclick="window.app.pushHistory(); window.app.currentTab = \'events\'; window.app.showEventType = \'upcoming\'; window.app.showEventReady = \'todo\'; window.app.showEventCompleted = \'all\'; window.app.render()" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); display: flex; justify-content: space-between; align-items: center;"><span style="color: var(--color-text); font-size: 14px;">Upcoming events needing gifts assigned</span><span class="font-bold" style="color: ' + (outstanding.eventsNeedingGifts > 0 ? 'var(--color-warning)' : 'var(--color-success)') + '; font-size: 18px;">' + outstanding.eventsNeedingGifts + '</span></div>';
         html += '</div>';
+
+        // ---- Year navigator ----
+        const yearLabel = this.reportingAllTime ? 'All Time' : String(this.reportingYear);
+        const caption = this.reportingAllTime ? 'Tap to view by year' : 'Tap for all-time stats';
+        const chevron = (dir) => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="' + (dir === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6') + '"></polyline></svg>';
+        html += '<div class="mb-5" style="display: flex; align-items: center; justify-content: center; gap: 24px;">';
+        html += this.reportingAllTime ? '<span style="width: 36px;"></span>' : '<button onclick="window.app.changeReportingYear(-1)" style="background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 8px; width: 36px;">' + chevron('left') + '</button>';
+        html += '<button onclick="window.app.toggleReportingAllTime()" style="background: none; border: none; cursor: pointer; text-align: center;"><span class="text-2xl font-bold" style="color: var(--color-text); display: block;">' + yearLabel + '</span><span style="font-size: 11px; color: var(--color-text-muted);">' + caption + '</span></button>';
+        html += this.reportingAllTime ? '<span style="width: 36px;"></span>' : '<button onclick="window.app.changeReportingYear(1)" style="background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 8px; width: 36px;">' + chevron('right') + '</button>';
+        html += '</div>';
+
+        if (s.eventsCount === 0 && s.totalReceived === 0) {
+            html += '<div class="p-6 rounded-lg text-center mb-4" style="background-color: var(--color-surface); box-shadow: 0 1px 2px rgba(16,24,40,0.06);"><p style="color: var(--color-text-muted); font-size: 14px;">No events recorded for ' + yearLabel + '.</p></div>';
+            html += '<div onclick="window.app.pushHistory(); window.app.showPersonStatsModal()" class="p-4 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); text-align: center;"><p class="text-sm font-bold" style="color: var(--color-primary);">Person-Level Stats</p><p class="text-xs" style="color: var(--color-text-muted);">All-time average spending by person</p></div>';
+            return html;
+        }
+
+        // ---- Overview: spend vs budget ----
+        const remaining = s.totalBudgeted - s.totalSpent;
+        html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Overview</p>';
+        html += '<div class="grid grid-cols-2 gap-2 mb-3">';
+        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Spent</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + s.totalSpent.toFixed(2) + '</p></div>';
+        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted);">Total Budgeted</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + s.totalBudgeted.toFixed(2) + '</p></div>';
+        html += '</div>';
+        if (s.totalBudgeted > 0) {
+            const pct = Math.min(100, (s.totalSpent / s.totalBudgeted) * 100);
+            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex items-center justify-between mb-2"><span class="text-xs font-bold" style="color: var(--color-text-muted); text-transform: uppercase;">Budget Used</span><span class="text-sm font-bold" style="color: ' + (remaining < 0 ? 'var(--color-error)' : 'var(--color-success)') + ';">' + (remaining < 0 ? 'Over by £' + Math.abs(remaining).toFixed(2) : '£' + remaining.toFixed(2) + ' remaining') + '</span></div><div class="w-full rounded-full h-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + pct + '%; background-color: ' + (remaining < 0 ? 'var(--color-error)' : 'var(--color-success)') + ';"></div></div></div>';
+        }
+
+        // ---- Budget: event-level breakdown ----
+        if (s.eventsCount > 0) {
+            html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Events by Budget Status</p>';
+            const budgetRows = [
+                { label: 'Within budget', count: s.budgetWithin, color: 'var(--color-success)' },
+                { label: 'Over budget', count: s.budgetOver, color: 'var(--color-error)' },
+                { label: 'Budget set, nothing spent yet', count: s.budgetNoSpend, color: 'var(--color-warning)' },
+                { label: 'No budget set', count: s.noBudgetSet, color: 'var(--color-text-muted)' }
+            ];
+            budgetRows.forEach(b => {
+                if (b.count === 0) return;
+                html += '<div class="flex items-center justify-between mb-1"><span style="color: var(--color-text); font-size: 13px;">' + b.label + '</span><span class="font-bold" style="color: ' + b.color + '; font-size: 13px;">' + b.count + '</span></div>';
+            });
+            html += '<p class="text-xs mt-2" style="color: var(--color-text-muted);">' + s.eventsCount + ' event' + (s.eventsCount !== 1 ? 's' : '') + ' total</p></div>';
+        }
 
         // ---- Giving ----
         html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Giving</p>';
-        html += '<div class="grid grid-cols-3 gap-2 mb-3">';
-        html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Spent</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + totalSpent.toFixed(2) + '</p></div>';
-        html += '<div onclick="window.app.showEventTypeSpendModal(\'birthday\')" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-primary);">Avg Birthday</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + avgBday + '</p></div>';
-        html += '<div onclick="window.app.showEventTypeSpendModal(\'christmas\')" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-success);">Avg Christmas</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + avgXmas + '</p></div>';
+        html += '<div class="grid grid-cols-2 gap-2 mb-3">';
+        html += '<div onclick="window.app.showEventTypeSpendModal(\'birthday\')" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-primary);">Avg Birthday</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + s.avgBday + '</p></div>';
+        html += '<div onclick="window.app.showEventTypeSpendModal(\'christmas\')" class="p-3 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-success);">Avg Christmas</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + s.avgXmas + '</p></div>';
         html += '</div>';
 
-        if (total > 0) {
+        if (s.giftStatus.total > 0) {
             html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Gift Status</p>';
-            breakdown.forEach(b => {
+            s.giftStatus.breakdown.forEach(b => {
                 if (b.count === 0) return;
                 html += '<div class="flex items-center justify-between mb-1"><span style="color: var(--color-text); font-size: 13px;">' + b.label + '</span><span style="color: var(--color-text-muted); font-size: 13px;">' + b.count + '</span></div>';
             });
-            html += '<div class="w-full rounded-full h-2 mt-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (total > 0 ? (giftedCount / total * 100) : 0) + '%; background-color: var(--color-success);"></div></div><p class="text-xs mt-1" style="color: var(--color-text-muted);">' + giftedCount + ' of ' + total + ' fully gifted</p></div>';
+            html += '<div class="w-full rounded-full h-2 mt-2" style="background-color: var(--color-border);"><div class="h-2 rounded-full" style="width: ' + (s.giftStatus.total > 0 ? (s.giftStatus.giftedCount / s.giftStatus.total * 100) : 0) + '%; background-color: var(--color-success);"></div></div><p class="text-xs mt-1" style="color: var(--color-text-muted);">' + s.giftStatus.giftedCount + ' of ' + s.giftStatus.total + ' fully gifted</p></div>';
         }
 
-        if (topGiftees.length > 0) {
+        if (s.topGiftees.length > 0) {
             html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Recipients</p>';
-            topGiftees.forEach((giftee, idx) => {
-                html += '<div onclick="window.app.showRecipientHistoryModal(\'' + giftee.name.replace(/'/g, "\\'") + '\')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < topGiftees.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGiftees.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giftee.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giftee.count + ' gift' + (giftee.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giftee.spent.toFixed(2) + '</p></div>';
+            s.topGiftees.forEach((giftee, idx) => {
+                html += '<div onclick="window.app.showRecipientHistoryModal(\'' + giftee.name.replace(/'/g, "\\'") + '\')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < s.topGiftees.length - 1 ? ' border-b' : '') + '" style="' + (idx < s.topGiftees.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giftee.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giftee.count + ' gift' + (giftee.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giftee.spent.toFixed(2) + '</p></div>';
             });
             html += '</div>';
         }
 
         // ---- Receiving ----
-        if (this.receivedGifts.length > 0 || this.getReceivedGiftsPeopleNames().length > 0) {
+        if (s.receivedCount > 0 || this.getReceivedGiftsPeopleNames().length > 0) {
             html += '<p class="text-xs font-bold mb-2" style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Receiving</p>';
             html += '<div class="grid grid-cols-2 gap-2 mb-3">';
-            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Received</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + totalReceived.toFixed(2) + '</p></div>';
-            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted);">Thank Yous Sent</p><p class="text-lg font-bold" style="color: var(--color-text);">' + thankedCount + ' / ' + this.receivedGifts.length + '</p></div>';
+            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-accent);">Total Received</p><p class="text-lg font-bold" style="color: var(--color-text);">£' + s.totalReceived.toFixed(2) + '</p></div>';
+            html += '<div class="p-3 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-1" style="color: var(--color-text-muted);">Thank Yous Sent</p><p class="text-lg font-bold" style="color: var(--color-text);">' + s.thankedCount + ' / ' + s.receivedCount + '</p></div>';
             html += '</div>';
 
-            if (topGivers.length > 0) {
+            if (s.topGivers.length > 0) {
                 html += '<div class="p-4 rounded-lg border mb-4" style="background-color: var(--color-surface); border-color: var(--color-border);"><p class="text-xs font-bold mb-3" style="color: var(--color-text-muted); text-transform: uppercase;">Top Givers</p>';
-                topGivers.forEach((giver, idx) => {
-                    html += '<div onclick="window.app.showGiverHistoryModal(\'' + giver.giverType + '\', ' + giver.giverId + ')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < topGivers.length - 1 ? ' border-b' : '') + '" style="' + (idx < topGivers.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giver.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giver.count + ' gift' + (giver.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giver.spent.toFixed(2) + '</p></div>';
+                s.topGivers.forEach((giver, idx) => {
+                    html += '<div onclick="window.app.showGiverHistoryModal(\'' + giver.giverType + '\', ' + giver.giverId + ')" class="flex items-center justify-between pb-2 cursor-pointer' + (idx < s.topGivers.length - 1 ? ' border-b' : '') + '" style="' + (idx < s.topGivers.length - 1 ? 'border-color: var(--color-border);' : '') + '"><div><p class="text-sm font-medium" style="color: var(--color-text);">' + (idx + 1) + '. ' + giver.name + '</p><p class="text-xs" style="color: var(--color-text-muted);">' + giver.count + ' gift' + (giver.count > 1 ? 's' : '') + ' • tap for history</p></div><p class="text-sm font-bold" style="color: var(--color-accent);">£' + giver.spent.toFixed(2) + '</p></div>';
                 });
                 html += '</div>';
             }
         }
 
-        html += '<div onclick="window.app.showPersonStatsModal()" class="p-4 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); text-align: center;"><p class="text-sm font-bold" style="color: var(--color-primary);">Person-Level Stats</p><p class="text-xs" style="color: var(--color-text-muted);">Tap to view average spending by person</p></div>';
+        html += '<div onclick="window.app.pushHistory(); window.app.showPersonStatsModal()" class="p-4 rounded-lg border cursor-pointer" style="background-color: var(--color-surface); border-color: var(--color-border); text-align: center;"><p class="text-sm font-bold" style="color: var(--color-primary);">Person-Level Stats</p><p class="text-xs" style="color: var(--color-text-muted);">All-time average spending by person</p></div>';
 
         return html;
     }
@@ -2605,6 +2741,8 @@ class GiftTracker {
     }
 
     navigateToTab(tab) {
+        if (tab === this.currentTab) { this.showSidebar = false; this.render(); return; }
+        this.pushHistory();
         this.currentTab = tab;
         this.showSidebar = false;
         this.render();
@@ -2629,6 +2767,7 @@ class GiftTracker {
 
     quickAdd(type) {
         this.showQuickAdd = false;
+        this.pushHistory();
         if (type === 'event') {
             this.currentTab = 'events';
             this.addingEvent = true;
