@@ -6,6 +6,9 @@
     <title>Gift Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/xlsx@latest/dist/xlsx.full.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         :root {
@@ -143,9 +146,92 @@ window.addEventListener('error', function(e) {
         window.alert('Something went wrong: ' + (e.message || 'unknown error') + '\n\nTry reloading the page. If it keeps happening, note exactly what you clicked.');
     } catch (err) { /* ignore */ }
 });
+
+// ===== Firebase (Google Sign-In + Firestore cloud sync) =====
+// Replace these placeholder values with your own Firebase project's web config.
+// Firebase Console -> Project settings -> General -> Your apps -> SDK setup and configuration.
+// This config is not a secret - it's safe to keep in client-side code.
+const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+};
+let firebaseReady = false;
+let auth = null;
+let db = null;
+try {
+    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_API_KEY') {
+        firebase.initializeApp(firebaseConfig);
+        auth = firebase.auth();
+        db = firebase.firestore();
+        firebaseReady = true;
+    }
+} catch (e) {
+    console.error('Firebase failed to initialize', e);
+}
+
 class GiftTracker {
     constructor() {
-        const data = this.loadData();
+        this.authState = firebaseReady ? 'loading' : 'unconfigured';
+        this.user = null;
+        this._saveDebounceTimer = null;
+        this._cloudDirty = false;
+        this.render();
+        if (firebaseReady) this.initAuth();
+    }
+
+    initAuth() {
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                this.user = user;
+                let cloudData = null;
+                try {
+                    const doc = await db.collection('users').doc(user.uid).get();
+                    if (doc.exists) cloudData = doc.data();
+                } catch (e) {
+                    console.error('Failed to load cloud data', e);
+                }
+                let data = cloudData;
+                if (!data) {
+                    // First sign-in on this device with no cloud data yet - migrate any
+                    // existing local data up to the cloud so nothing is lost.
+                    const localData = this.loadData();
+                    if (localData) {
+                        data = localData;
+                        try { await db.collection('users').doc(user.uid).set(localData); } catch (e) { console.error('Migration to cloud failed', e); }
+                    }
+                }
+                this.initializeApp(data);
+            } else {
+                this.user = null;
+                this.authState = 'signedOut';
+                this.render();
+            }
+        });
+    }
+
+    signInWithGoogle() {
+        if (!firebaseReady) return;
+        const provider = new firebase.auth.GoogleAuthProvider();
+        auth.signInWithPopup(provider).catch(err => {
+            window.alert('Sign-in failed: ' + (err.message || 'unknown error'));
+        });
+    }
+
+    signOutUser() {
+        if (!firebaseReady) return;
+        auth.signOut().then(() => {
+            this.authState = 'signedOut';
+            this.render();
+        }).catch(err => {
+            window.alert('Sign-out failed: ' + (err.message || 'unknown error'));
+        });
+    }
+
+    initializeApp(data) {
         this.people = data?.people || [];
         this.events = data?.events || [];
         this.gifts = data?.gifts || [];
@@ -250,7 +336,7 @@ class GiftTracker {
         this.peopleTypeFilter = 'all';
         this.showPeopleFilterPanel = false;
         this.showPeopleCategory = 'all';
-        this.settingsExpanded = { home: true, data: false, shops: false, receivedGifts: false, otherGivers: false };
+        this.settingsExpanded = { home: true, data: false, shops: false, receivedGifts: false, otherGivers: false, account: false };
         this.searchText = '';
         this.eventsSearchText = '';
         this.peopleSearchText = '';
@@ -262,11 +348,24 @@ class GiftTracker {
         this.navFuture = [];
         this.reportingYear = new Date().getFullYear();
         this.reportingAllTime = false;
+        this.authState = 'ready';
         this.render();
         this.initSwipeNavigation();
     }
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
-    saveData() { try { localStorage.setItem('giftTrackerData', JSON.stringify({people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers, receivedGiftsPersonIds: this.receivedGiftsPersonIds, homeDaysAhead: this.homeDaysAhead})); } catch(e) {} }
+    saveData() {
+        const payload = {people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers, receivedGiftsPersonIds: this.receivedGiftsPersonIds, homeDaysAhead: this.homeDaysAhead};
+        try { localStorage.setItem('giftTrackerData', JSON.stringify(payload)); } catch(e) {}
+        if (this.user && db) {
+            this._cloudDirty = true;
+            clearTimeout(this._saveDebounceTimer);
+            this._saveDebounceTimer = setTimeout(() => {
+                db.collection('users').doc(this.user.uid).set(payload)
+                    .then(() => { this._cloudDirty = false; })
+                    .catch(err => { console.error('Cloud sync failed', err); });
+            }, 600);
+        }
+    }
     snapshotState() {
         return { currentTab: this.currentTab, expandedEvent: this.expandedEvent, expandedPerson: this.expandedPerson, showGiftsView: this.showGiftsView };
     }
@@ -2693,7 +2792,16 @@ class GiftTracker {
 
         const homeContent = '<div style="display: flex; align-items: center; gap: 10px; padding: 6px 4px;"><label style="color: var(--color-text); font-size: 14px; flex: 1;">Show events within</label><input type="number" min="1" max="365" value="' + this.homeDaysAhead + '" onchange="window.app.updateHomeDaysAhead(this.value)" style="width: 64px; padding: 8px; border-radius: 8px; border: 1px solid var(--color-border); background-color: var(--color-bg); color: var(--color-text); text-align: center;"><span style="color: var(--color-text-muted); font-size: 14px;">days</span></div>';
 
-        let html = section('home', 'Home Screen', homeContent, true)
+        const accountContent = this.user
+            ? '<div style="display: flex; align-items: center; gap: 10px; padding: 6px 4px 12px;">'
+                + (this.user.photoURL ? '<img src="' + this.user.photoURL + '" style="width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;">' : '<div style="width: 36px; height: 36px; border-radius: 50%; background-color: var(--color-secondary); color: var(--color-primary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600;">' + (this.user.email || '?').charAt(0).toUpperCase() + '</div>')
+                + '<div style="min-width: 0;"><p style="color: var(--color-text); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (this.user.displayName || 'Signed in') + '</p><p style="color: var(--color-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (this.user.email || '') + '</p></div></div>'
+                + '<p style="color: var(--color-text-muted); font-size: 12px; padding: 0 4px 12px;">Your data syncs automatically to your Google account and is available on any device you sign into.</p>'
+                + '<button onclick="window.app.signOutUser()" class="w-full py-3 px-4 rounded-lg border text-left" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-error); cursor: pointer; font-weight: 500;">Sign out</button>'
+            : '<p style="color: var(--color-text-muted); font-size: 14px; padding: 4px;">Not signed in.</p>';
+
+        let html = section('account', 'Account', accountContent, true)
+            + section('home', 'Home Screen', homeContent)
             + section('data', 'Data', dataContent)
             + section('shops', 'Shop Database', shopsContent)
             + section('receivedGifts', 'Received Gifts Tracking', receivedGiftsContent)
@@ -2820,7 +2928,35 @@ class GiftTracker {
         }
     }
 
+    renderLoadingScreen() {
+        return '<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: var(--color-bg);">'
+            + '<div style="width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--color-secondary); border-top-color: var(--color-primary); animation: spin 0.8s linear infinite;"></div>'
+            + '</div><style>@keyframes spin { to { transform: rotate(360deg); } }</style>';
+    }
+
+    renderUnconfiguredScreen() {
+        return '<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: var(--color-bg); padding: 24px;">'
+            + '<div style="max-width: 360px; text-align: center; background-color: var(--color-surface); border-radius: 16px; padding: 32px 24px; box-shadow: 0 1px 3px rgba(16,24,40,0.08);">'
+            + '<h1 class="text-xl font-bold" style="color: var(--color-text); margin-bottom: 8px;">Gift Tracker</h1>'
+            + '<p style="color: var(--color-text-muted); font-size: 14px;">Google Sign-In isn\'t set up yet. Add your Firebase project config near the top of the page\'s script to enable cloud sync.</p>'
+            + '</div></div>';
+    }
+
+    renderSignInScreen() {
+        const googleIcon = '<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"></path><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"></path><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"></path><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"></path></svg>';
+        return '<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background-color: var(--color-bg); padding: 24px;">'
+            + '<div style="max-width: 340px; width: 100%; text-align: center; background-color: var(--color-surface); border-radius: 16px; padding: 36px 28px; box-shadow: 0 1px 3px rgba(16,24,40,0.08);">'
+            + '<div style="width: 56px; height: 56px; border-radius: 14px; background-color: var(--color-secondary); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></svg></div>'
+            + '<h1 class="text-xl font-bold" style="color: var(--color-text); margin-bottom: 6px;">Gift Tracker</h1>'
+            + '<p style="color: var(--color-text-muted); font-size: 14px; margin-bottom: 24px;">Sign in to sync your gifts, people and events across all your devices.</p>'
+            + '<button onclick="window.app.signInWithGoogle()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; border-radius: 10px; border: 1px solid var(--color-border); background-color: var(--color-surface); color: var(--color-text); font-size: 14px; font-weight: 600; cursor: pointer;">' + googleIcon + '<span>Sign in with Google</span></button>'
+            + '</div></div>';
+    }
+
     render() {
+        if (this.authState === 'loading') { document.getElementById('app').innerHTML = this.renderLoadingScreen(); return; }
+        if (this.authState === 'unconfigured') { document.getElementById('app').innerHTML = this.renderUnconfiguredScreen(); return; }
+        if (this.authState === 'signedOut') { document.getElementById('app').innerHTML = this.renderSignInScreen(); return; }
         let content = '';
         if (this.currentTab === 'home') content = this.renderHomeTab();
         else if (this.currentTab === 'events') content = this.renderEventsTab();
@@ -2859,6 +2995,10 @@ class GiftTracker {
             + '<div class="sidebar-enter" style="position: fixed; top: 0; left: 0; bottom: 0; width: 260px; max-width: 80vw; background-color: var(--color-surface); z-index: 50; box-shadow: 2px 0 16px rgba(16,24,40,0.15); display: flex; flex-direction: column;">'
             + '<div style="padding: 20px 16px; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between;"><h2 class="text-lg font-bold" style="color: var(--color-text);">Gift Tracker</h2><button onclick="window.app.toggleSidebar()" style="background: none; border: none; cursor: pointer; color: var(--color-text-muted); padding: 4px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>'
             + '<nav style="padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; flex: 1;">' + navItems.map(navBtn).join('') + '</nav>'
+            + (this.user ? '<div style="padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--color-border);">'
+                + (this.user.photoURL ? '<img src="' + this.user.photoURL + '" style="width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;">' : '<div style="width: 28px; height: 28px; border-radius: 50%; background-color: var(--color-secondary); color: var(--color-primary); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600;">' + (this.user.email || '?').charAt(0).toUpperCase() + '</div>')
+                + '<span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--color-text-muted);">' + (this.user.email || '') + '</span>'
+                + '</div>' : '')
             + '<div style="padding: 8px; border-top: 1px solid var(--color-border);">' + navBtn(settingsNavItem) + '</div>'
             + '</div>' : '';
 
