@@ -357,18 +357,23 @@ class GiftTracker {
     }
     loadData() { try { return JSON.parse(localStorage.getItem('giftTrackerData')); } catch(e) { return null; } }
     saveData() {
-        const payload = {people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers, receivedGiftsPersonIds: this.receivedGiftsPersonIds, homeDaysAhead: this.homeDaysAhead, specialEventTypes: this.specialEventTypes, specialEventDefinitions: this.specialEventDefinitions};
-        try { localStorage.setItem('giftTrackerData', JSON.stringify(payload)); } catch(e) {}
-        if (this.user && db) {
-            this._cloudDirty = true;
-            clearTimeout(this._saveDebounceTimer);
-            this._saveDebounceTimer = setTimeout(() => {
-                db.ref('users/' + this.user.uid).set(payload)
-                    .then(() => { this._cloudDirty = false; })
-                    .catch(err => { console.error('Cloud sync failed', err); });
-            }, 600);
-        }
+    const payload = {people: this.people, events: this.events, gifts: this.gifts, shops: this.shops, receivedGifts: this.receivedGifts, otherGivers: this.otherGivers, receivedGiftsPersonIds: this.receivedGiftsPersonIds, homeDaysAhead: this.homeDaysAhead, specialEventTypes: this.specialEventTypes, specialEventDefinitions: this.specialEventDefinitions};
+    try { localStorage.setItem('giftTrackerData', JSON.stringify(payload)); } catch(e) {}
+    if (this.user && db) {
+        this._cloudDirty = true;
+        clearTimeout(this._saveDebounceTimer);
+        this._saveDebounceTimer = setTimeout(() => {
+            // Realtime Database throws on any `undefined` field value (unlike localStorage's
+            // JSON.stringify, which silently drops them) - round-trip through JSON first so
+            // things like an event's unset `messages` field never reach the SDK as undefined.
+            let cleanPayload;
+            try { cleanPayload = JSON.parse(JSON.stringify(payload)); } catch (e) { console.error('Cloud sync failed: could not serialize data', e); return; }
+            db.ref('users/' + this.user.uid).set(cleanPayload)
+                .then(() => { this._cloudDirty = false; })
+                .catch(err => { console.error('Cloud sync failed', err); });
+        }, 600);
     }
+}
     snapshotState() {
         return { currentTab: this.currentTab, expandedEvent: this.expandedEvent, expandedPerson: this.expandedPerson, showGiftsView: this.showGiftsView };
     }
