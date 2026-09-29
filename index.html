@@ -8,7 +8,7 @@
     <script src="https://unpkg.com/xlsx@latest/dist/xlsx.full.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         :root {
@@ -166,7 +166,7 @@ try {
     if (firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_API_KEY') {
         firebase.initializeApp(firebaseConfig);
         auth = firebase.auth();
-        db = firebase.firestore();
+        db = firebase.database();
         firebaseReady = true;
     }
 } catch (e) {
@@ -189,8 +189,8 @@ class GiftTracker {
                 this.user = user;
                 let cloudData = null;
                 try {
-                    const doc = await db.collection('users').doc(user.uid).get();
-                    if (doc.exists) cloudData = doc.data();
+                    const snapshot = await db.ref('users/' + user.uid).once('value');
+                    if (snapshot.exists()) cloudData = snapshot.val();
                 } catch (e) {
                     console.error('Failed to load cloud data', e);
                 }
@@ -201,7 +201,7 @@ class GiftTracker {
                     const localData = this.loadData();
                     if (localData) {
                         data = localData;
-                        try { await db.collection('users').doc(user.uid).set(localData); } catch (e) { console.error('Migration to cloud failed', e); }
+                        try { await db.ref('users/' + user.uid).set(localData); } catch (e) { console.error('Migration to cloud failed', e); }
                     }
                 }
                 this.initializeApp(data);
@@ -360,7 +360,7 @@ class GiftTracker {
             this._cloudDirty = true;
             clearTimeout(this._saveDebounceTimer);
             this._saveDebounceTimer = setTimeout(() => {
-                db.collection('users').doc(this.user.uid).set(payload)
+                db.ref('users/' + this.user.uid).set(payload)
                     .then(() => { this._cloudDirty = false; })
                     .catch(err => { console.error('Cloud sync failed', err); });
             }, 600);
