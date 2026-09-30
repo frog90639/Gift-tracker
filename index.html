@@ -241,15 +241,8 @@ class GiftTracker {
         this.otherGivers = data?.otherGivers || [];
         this.specialEventTypes = data?.specialEventTypes || [];
         this.specialEventDefinitions = data?.specialEventDefinitions || [];
-        this.receivedGiftsPersonIds = data?.receivedGiftsPersonIds;
+        this.receivedGiftsPersonIds = data?.receivedGiftsPersonIds || [];
         this.homeDaysAhead = data?.homeDaysAhead || 30;
-        if (this.receivedGiftsPersonIds === undefined) {
-            // One-time migration: previously "Me"/"Adam" were hardcoded by name. Preserve
-            // existing behavior for current users by seeding the new configurable list
-            // from whichever people already matched that pattern.
-            const legacyMatch = (name) => /\b(me|adam)\b/i.test(name || '');
-            this.receivedGiftsPersonIds = this.people.filter(p => legacyMatch(p.fullName)).map(p => p.id);
-        }
         
         // Migrate any legacy received-gift records (fromPersonName/fromPersonId) to the
         // new giverType/giverId model, which stores a reference rather than a frozen name
@@ -296,7 +289,7 @@ class GiftTracker {
         this.receivedGifts.forEach(g => { if (g.eventId && !validEventIds.has(g.eventId)) g.eventId = null; });
         
         // Best-effort backfill: if a received gift is tied to an event with exactly one
-        // relevant person (Me or Adam) and has no receivedByPersonName yet, tag it now.
+        // relevant person (per the Settings-selected received-gifts list) and has no receivedByPersonName yet, tag it now.
         this.receivedGifts.forEach(rg => {
             if (!rg.receivedByPersonName && rg.eventId) {
                 const ev = this.events.find(e => e.id === rg.eventId);
@@ -324,7 +317,7 @@ class GiftTracker {
         this.eventType = null;
         this.newGiftEventId = null;
         this.newGiftPersonName = null;
-        this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' };
+        this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '', splitMode: false, splitTotalPrice: '', splits: [] };
         this.receivedGiftFormState = { giftName: '', from: '', fromNewText: '', event: null, price: '', notes: '', thankYouSent: false, receivedBy: '' };
         this.showGiftStatus = 'all';
         this.showGiftsView = 'given';
@@ -573,6 +566,24 @@ class GiftTracker {
         });
     }
     toggleAddPerson() { this.addingPerson = !this.addingPerson; this.render(); }
+    toggleAddPersonBudgetFields() {
+        const msg = document.getElementById('pmsg');
+        const fyi = document.getElementById('pfyi');
+        const xmas = document.getElementById('pxmas');
+        const bdayField = document.getElementById('pbday-budget-field');
+        const xmasField = document.getElementById('pxmas-budget-field');
+        if (bdayField) bdayField.style.display = ((msg && msg.checked) || (fyi && fyi.checked)) ? 'none' : '';
+        if (xmasField) xmasField.style.display = (xmas && xmas.checked) ? '' : 'none';
+    }
+    toggleEditPersonBudgetFields(id) {
+        const msg = document.getElementById('ep_msg_' + id);
+        const fyi = document.getElementById('ep_fyi_' + id);
+        const xmas = document.getElementById('ep_xmas_' + id);
+        const bdayField = document.getElementById('ep_bbudget_field_' + id);
+        const xmasField = document.getElementById('ep_cbudget_field_' + id);
+        if (bdayField) bdayField.style.display = ((msg && msg.checked) || (fyi && fyi.checked)) ? 'none' : '';
+        if (xmasField) xmasField.style.display = (xmas && xmas.checked) ? '' : 'none';
+    }
     addPerson(name, bday, year, likes, dislikes, notes, messageOnly, fyiOnly, category, includeInChristmas, birthdayBudget, christmasBudget) {
         if (!name || !bday || !year) return alert('Need name, birthday (DD-MM), year');
         this.people.push({ id: Math.max(...this.people.map(p => p.id), 0) + 1, fullName: name, birthday: bday, birthYear: parseInt(year), likes: likes || '', dislikes: dislikes || '', notes: notes || '', giftHistory: [], includeInChristmas: includeInChristmas || false, messageOnly: messageOnly || false, fyiOnly: fyiOnly || false, category: category || 'friend', birthdayBudget: birthdayBudget || '', christmasBudget: christmasBudget || '' });
@@ -910,23 +921,50 @@ class GiftTracker {
         this.newGiftEventId = null;
         this.newGiftPersonName = null;
         if (this.addingGift) {
-            this.giftFormState = { giftName: '', person: personName || '', event: eventId || null, price: '', shop: '', notes: '', status: 'idea', url: '' };
+            this.giftFormState = { giftName: '', person: personName || '', event: eventId || null, price: '', shop: '', notes: '', status: 'idea', url: '', splitMode: false, splitTotalPrice: '', splits: [] };
         }
         this.render();
     }
+    // The set of events a given person name could reasonably have this gift assigned to
+    // (their own birthday, or any group/special event they're part of).
+    getEventsForPersonName(personName) {
+        if (!personName) return [];
+        const person = this.people.find(p => p.fullName === personName);
+        if (!person) return [];
+        return this.events.filter(e => e.personId === person.id || (e.people && e.people.some(ep => ep.name === personName)))
+            .sort((a, b) => {
+                const [dA, mA, yA] = a.date.split('-');
+                const [dB, mB, yB] = b.date.split('-');
+                return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB));
+            });
+    }
+    renderGiftSplitRows() {
+        const splits = this.giftFormState.splits;
+        const total = splits.reduce((s, sp) => s + (parseFloat(sp.amount) || 0), 0);
+        let html = '<p style="color: var(--color-text-muted); font-size: 12px; margin: 4px 0 8px 0;">One gift, split across two or more people and/or events - each gets its own share of the price.</p>';
+        html += '<div class="flex gap-2 mb-2"><input type="number" id="gsplit_total" placeholder="Total price (£)" value="' + this.giftFormState.splitTotalPrice + '" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.splitTotalPrice = this.value"><button onclick="window.app.splitGiftEvenly()" class="px-3 py-2 rounded border text-sm font-medium" style="background-color: var(--color-secondary); color: var(--color-text); white-space: nowrap;">Split Evenly</button></div>';
+        splits.forEach((s, i) => {
+            const rowEvents = this.getEventsForPersonName(s.person);
+            html += '<div class="mb-2 p-2 rounded border" style="background-color: var(--color-bg); border-color: var(--color-border);">'
+                + '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><span style="color: var(--color-text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase;">Share ' + (i + 1) + '</span>' + (splits.length > 2 ? '<button onclick="window.app.removeGiftSplitRow(' + i + ')" style="background: none; border: none; color: var(--color-error); cursor: pointer; font-size: 11px; font-weight: 500;">Remove</button>' : '') + '</div>'
+                + '<select onchange="window.app.updateGiftSplitField(' + i + ', \'person\', this.value)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (s.person === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>'
+                + (s.person ? '<select onchange="window.app.updateGiftSplitField(' + i + ', \'eventId\', this.value)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + rowEvents.map(e => '<option value="' + e.id + '"' + (String(s.eventId) === String(e.id) ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '')
+                + '<input type="number" placeholder="Amount (£)" value="' + s.amount + '" oninput="window.app.updateGiftSplitField(' + i + ', \'amount\', this.value)" class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                + '</div>';
+        });
+        html += '<button onclick="window.app.addGiftSplitRow()" class="w-full py-2 mb-2 rounded-lg border text-sm font-medium" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-primary);">+ Add another share</button>';
+        html += '<p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">Shares total: <strong style="color: var(--color-text);">£' + total.toFixed(2) + '</strong></p>';
+        return html;
+    }
     renderAddGiftForm() {
         const selectedPerson = this.giftFormState.person;
-        const personEvents = selectedPerson ? this.events.filter(e => {
-            const person = this.people.find(p => p.fullName === selectedPerson);
-            if (!person) return false;
-            // Check if it's a birthday event for this person OR a group event that includes this person
-            return e.personId === person.id || (e.people && e.people.some(ep => ep.name === selectedPerson));
-        }).sort((a, b) => {
-            const [dA, mA, yA] = a.date.split('-');
-            const [dB, mB, yB] = b.date.split('-');
-            return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB));
-        }) : [];
-        return '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Gift</h3><input type="text" id="gname" placeholder="Gift name" value="' + this.giftFormState.giftName + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.giftName = this.value"><select id="gperson" onchange="window.app.giftFormState.person = this.value; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (this.giftFormState.person === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>' + (selectedPerson ? '<select id="gevent" onchange="window.app.giftFormState.event = parseInt(this.value) || null" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + personEvents.map(e => '<option value="' + e.id + '"' + (this.giftFormState.event === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '') + '<input type="number" id="gprice" placeholder="Price" value="' + this.giftFormState.price + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.price = this.value"><input type="text" id="gurl" placeholder="URL" value="' + this.giftFormState.url + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.url = this.value"><div class="flex gap-2 mb-2"><select id="gshop" onchange="window.app.giftFormState.shop = this.value" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Shop</option>' + this.shops.map(s => '<option value="' + s + '"' + (this.giftFormState.shop === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select><button onclick="window.app.showPromptModal(\'Shop name\', \'\', (shop) => { if (shop) window.app.addShop(shop); }, \'Add Shop\')" class="px-3 py-2 rounded text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div><textarea id="gnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.notes = this.value">' + this.giftFormState.notes + '</textarea><select id="gstatus" onchange="window.app.giftFormState.status = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea"' + (this.giftFormState.status === 'idea' ? ' selected' : '') + '>Idea</option><option value="planned"' + (this.giftFormState.status === 'planned' ? ' selected' : '') + '>Planned</option><option value="bought"' + (this.giftFormState.status === 'bought' ? ' selected' : '') + '>Bought</option><option value="wrapped"' + (this.giftFormState.status === 'wrapped' ? ' selected' : '') + '>Wrapped</option><option value="gifted"' + (this.giftFormState.status === 'gifted' ? ' selected' : '') + '>Gifted</option></select><button onclick="if(!window.app.giftFormState.giftName) { alert(\'Please enter gift name\'); return; } window.app.addGift(window.app.giftFormState.giftName, window.app.giftFormState.person, window.app.giftFormState.event, window.app.giftFormState.price, window.app.giftFormState.status, null, window.app.giftFormState.url, window.app.giftFormState.notes, window.app.giftFormState.shop)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.addingGift = false; window.app.render()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+        const personEvents = this.getEventsForPersonName(selectedPerson);
+        const splitToggle = '<div class="mb-2"><input type="checkbox" id="gsplitmode" ' + (this.giftFormState.splitMode ? 'checked' : '') + ' onchange="window.app.toggleGiftSplitMode()"><label for="gsplitmode" style="color: var(--color-text); margin-left: 8px;"> Split this gift between multiple people/events</label></div>';
+        const singleFields = '<select id="gperson" onchange="window.app.giftFormState.person = this.value; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (this.giftFormState.person === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>' + (selectedPerson ? '<select id="gevent" onchange="window.app.giftFormState.event = parseInt(this.value) || null" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + personEvents.map(e => '<option value="' + e.id + '"' + (this.giftFormState.event === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '') + '<input type="number" id="gprice" placeholder="Price" value="' + this.giftFormState.price + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.price = this.value">';
+        const addButton = this.giftFormState.splitMode
+            ? '<button onclick="if(!window.app.giftFormState.giftName) { alert(\'Please enter gift name\'); return; } window.app.addSplitGift(window.app.giftFormState.giftName, window.app.giftFormState.splits, window.app.giftFormState.status, null, window.app.giftFormState.url, window.app.giftFormState.notes, window.app.giftFormState.shop)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add Split Gift</button>'
+            : '<button onclick="if(!window.app.giftFormState.giftName) { alert(\'Please enter gift name\'); return; } window.app.addGift(window.app.giftFormState.giftName, window.app.giftFormState.person, window.app.giftFormState.event, window.app.giftFormState.price, window.app.giftFormState.status, null, window.app.giftFormState.url, window.app.giftFormState.notes, window.app.giftFormState.shop)" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button>';
+        return '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Gift</h3><input type="text" id="gname" placeholder="Gift name" value="' + this.giftFormState.giftName + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.giftName = this.value">' + splitToggle + (this.giftFormState.splitMode ? this.renderGiftSplitRows() : singleFields) + '<input type="text" id="gurl" placeholder="URL" value="' + this.giftFormState.url + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.url = this.value"><div class="flex gap-2 mb-2"><select id="gshop" onchange="window.app.giftFormState.shop = this.value" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Shop</option>' + this.shops.map(s => '<option value="' + s + '"' + (this.giftFormState.shop === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select><button onclick="window.app.showPromptModal(\'Shop name\', \'\', (shop) => { if (shop) window.app.addShop(shop); }, \'Add Shop\')" class="px-3 py-2 rounded text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div><textarea id="gnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.giftFormState.notes = this.value">' + this.giftFormState.notes + '</textarea><select id="gstatus" onchange="window.app.giftFormState.status = this.value" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea"' + (this.giftFormState.status === 'idea' ? ' selected' : '') + '>Idea</option><option value="planned"' + (this.giftFormState.status === 'planned' ? ' selected' : '') + '>Planned</option><option value="bought"' + (this.giftFormState.status === 'bought' ? ' selected' : '') + '>Bought</option><option value="wrapped"' + (this.giftFormState.status === 'wrapped' ? ' selected' : '') + '>Wrapped</option><option value="gifted"' + (this.giftFormState.status === 'gifted' ? ' selected' : '') + '>Gifted</option></select>' + addButton + '<button onclick="window.app.addingGift = false; window.app.render()" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
     }
     toggleAddReceivedGift(eventId, receivedByPersonName) {
         this.addingReceivedGift = !this.addingReceivedGift;
@@ -1097,11 +1135,15 @@ class GiftTracker {
             this.render();
         }
     }
-    addGift(name, person, eid, price, status, category, url, notes, shop) {
-        if (!name) return alert('Enter gift name');
+    // Core gift-record creation, shared by a normal single-person/single-event gift and by
+    // each share of a split gift. Does not reset form state, save, or render - callers do that
+    // once after creating however many records they need.
+    _createGiftRecord(name, person, eid, price, status, category, url, notes, shop, extraFields) {
         const validEid = this.validateEventId(eid);
         const gid = Math.max(...this.gifts.map(g => g.id), 0) + 1;
-        this.gifts.push({ id: gid, giftName: name, personName: person || '', eventId: validEid, status: status || 'idea', price: parseFloat(price) || 0, url: url || '', notes: notes || '', category: category || 'other', shop: shop || '', photoUrl: '', purchaseYear: new Date().getFullYear() });
+        const record = { id: gid, giftName: name, personName: person || '', eventId: validEid, status: status || 'idea', price: parseFloat(price) || 0, url: url || '', notes: notes || '', category: category || 'other', shop: shop || '', photoUrl: '', purchaseYear: new Date().getFullYear() };
+        if (extraFields) Object.assign(record, extraFields);
+        this.gifts.push(record);
         if (person) {
             const p = this.people.find(x => x.fullName === person);
             if (p) {
@@ -1125,7 +1167,57 @@ class GiftTracker {
                 if (!e.giftIds.includes(gid)) e.giftIds.push(gid);
             }
         }
-        this.addingGift = false; this.newGiftEventId = null; this.newGiftPersonName = null; this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' }; this.saveData(); this.render();
+        return gid;
+    }
+    addGift(name, person, eid, price, status, category, url, notes, shop) {
+        if (!name) return alert('Enter gift name');
+        this._createGiftRecord(name, person, eid, price, status, category, url, notes, shop);
+        this.addingGift = false; this.newGiftEventId = null; this.newGiftPersonName = null; this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '', splitMode: false, splitTotalPrice: '', splits: [] }; this.saveData(); this.render();
+    }
+    // Creates one gift record per split share (e.g. a gift bought for two people, or split
+    // across two events), all tagged with the same splitGroupId so they can be shown together,
+    // each carrying only its own portion of the price.
+    addSplitGift(name, splits, status, category, url, notes, shop) {
+        if (!name) return alert('Enter gift name');
+        const validSplits = (splits || []).filter(s => s.person && parseFloat(s.amount) > 0);
+        if (validSplits.length < 2) return alert('Add at least two people/events with an amount to split this gift.');
+        const splitGroupId = 'split_' + Date.now();
+        const splitTotal = validSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        validSplits.forEach(s => {
+            this._createGiftRecord(name, s.person, s.eventId, s.amount, status, category, url, notes, shop, { splitGroupId: splitGroupId, splitTotal: splitTotal });
+        });
+        this.addingGift = false; this.newGiftEventId = null; this.newGiftPersonName = null; this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '', splitMode: false, splitTotalPrice: '', splits: [] }; this.saveData(); this.render();
+    }
+    toggleGiftSplitMode() {
+        this.giftFormState.splitMode = !this.giftFormState.splitMode;
+        if (this.giftFormState.splitMode && (!this.giftFormState.splits || this.giftFormState.splits.length < 2)) {
+            this.giftFormState.splits = [{ person: '', eventId: '', amount: '' }, { person: '', eventId: '', amount: '' }];
+        }
+        this.render();
+    }
+    addGiftSplitRow() {
+        this.giftFormState.splits.push({ person: '', eventId: '', amount: '' });
+        this.render();
+    }
+    removeGiftSplitRow(idx) {
+        if (this.giftFormState.splits.length <= 2) return;
+        this.giftFormState.splits.splice(idx, 1);
+        this.render();
+    }
+    updateGiftSplitField(idx, field, value) {
+        this.giftFormState.splits[idx][field] = value;
+        if (field === 'person') this.giftFormState.splits[idx].eventId = '';
+        this.render();
+    }
+    splitGiftEvenly() {
+        const total = parseFloat(this.giftFormState.splitTotalPrice) || 0;
+        const n = this.giftFormState.splits.length;
+        if (n === 0) return;
+        const base = Math.floor((total / n) * 100) / 100;
+        this.giftFormState.splits.forEach((s, i) => {
+            s.amount = (i === n - 1) ? (total - base * (n - 1)).toFixed(2) : base.toFixed(2);
+        });
+        this.render();
     }
     updateGift(id, updates) { 
         const g = this.gifts.find(x => x.id === id);
@@ -1439,14 +1531,14 @@ class GiftTracker {
         if (state.from === '__new__') {
             html += '<input type="text" id="rgfromtext" placeholder="Their name" value="' + (state.fromNewText || '') + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.receivedGiftFormState.fromNewText = this.value">';
         }
-        const meAdamPeople = this.getReceivedGiftsPeopleNames();
+        const trackedPeople = this.getReceivedGiftsPeopleNames();
         if (state.receivedBy) {
-            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text); display: flex; justify-content: space-between; align-items: center;"><span>Received by: <strong>' + state.receivedBy + '</strong></span>' + (meAdamPeople.length > 1 ? '<button onclick="window.app.receivedGiftFormState.receivedBy = \'\'; window.app.receivedGiftFormState.event = \'\'; window.app.render()" style="background: none; border: none; color: var(--color-accent); font-size: 11px; cursor: pointer; text-decoration: underline;">Change</button>' : '') + '</div>';
-        } else if (meAdamPeople.length > 1) {
-            html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Received by</label><select id="rgreceivedby" onchange="window.app.receivedGiftFormState.receivedBy = this.value; window.app.receivedGiftFormState.event = \'\'; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select --</option>' + meAdamPeople.map(n => '<option value="' + n + '">' + n + '</option>').join('') + '</select>';
-        } else if (meAdamPeople.length === 1) {
-            state.receivedBy = meAdamPeople[0];
-            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text);">Received by: <strong>' + meAdamPeople[0] + '</strong></div>';
+            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text); display: flex; justify-content: space-between; align-items: center;"><span>Received by: <strong>' + state.receivedBy + '</strong></span>' + (trackedPeople.length > 1 ? '<button onclick="window.app.receivedGiftFormState.receivedBy = \'\'; window.app.receivedGiftFormState.event = \'\'; window.app.render()" style="background: none; border: none; color: var(--color-accent); font-size: 11px; cursor: pointer; text-decoration: underline;">Change</button>' : '') + '</div>';
+        } else if (trackedPeople.length > 1) {
+            html += '<label style="display: block; margin-bottom: 6px; color: var(--color-text); font-size: 12px;">Received by</label><select id="rgreceivedby" onchange="window.app.receivedGiftFormState.receivedBy = this.value; window.app.receivedGiftFormState.event = \'\'; window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">-- Select --</option>' + trackedPeople.map(n => '<option value="' + n + '">' + n + '</option>').join('') + '</select>';
+        } else if (trackedPeople.length === 1) {
+            state.receivedBy = trackedPeople[0];
+            html += '<div style="margin-bottom: 8px; padding: 6px 10px; background-color: var(--color-secondary); border-radius: 4px; font-size: 12px; color: var(--color-text);">Received by: <strong>' + trackedPeople[0] + '</strong></div>';
         } else {
             html += '<p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">Select who Received Gifts tracking applies to in Settings.</p>';
         }
@@ -1464,10 +1556,15 @@ class GiftTracker {
         html += '</div>';
         return html;
     }
+    getSplitSiblings(g) {
+        if (!g.splitGroupId) return [];
+        return this.gifts.filter(x => x.splitGroupId === g.splitGroupId && x.id !== g.id);
+    }
     renderGivenGiftItem(g) {
         const isExp = this.expandedGift === g.id;
         const isEdit = this.editingGift === g.id;
-        let html = '<div class="mb-3 swipe-item" data-swipe-item data-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + g.giftName + '</h3><p class="text-sm" style="color: var(--color-text-muted);">£' + g.price.toFixed(2) + ' • ' + g.personName + ' • ' + g.status + '</p></button>';
+        const splitBadge = g.splitGroupId ? ' <span style="display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; background-color: var(--color-accent); color: white; vertical-align: middle;">Split £' + (g.splitTotal || 0).toFixed(2) + '</span>' : '';
+        let html = '<div class="mb-3 swipe-item" data-swipe-item data-gift-id="' + g.id + '"><div class="swipe-item-content p-4 rounded-lg border overflow-hidden" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex-1"><button onclick="window.app.expandGift(' + g.id + ')" class="w-full text-left"><h3 class="font-semibold" style="color: var(--color-text);">' + g.giftName + splitBadge + '</h3><p class="text-sm" style="color: var(--color-text-muted);">£' + g.price.toFixed(2) + ' • ' + g.personName + ' • ' + g.status + '</p></button>';
         if (isExp) {
             const event = this.events.find(e => e.id === g.eventId);
             if (isEdit) {
@@ -1491,6 +1588,13 @@ class GiftTracker {
                 }
                 if (g.shop) {
                     html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Shop</p><p style="color: var(--color-text);">' + g.shop + '</p></div>';
+                }
+                if (g.splitGroupId) {
+                    const siblings = this.getSplitSiblings(g);
+                    html += '<div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Split gift - total £' + (g.splitTotal || 0).toFixed(2) + '</p>' + siblings.map(s => {
+                        const sEvent = s.eventId ? this.events.find(e => e.id === s.eventId) : null;
+                        return '<p style="color: var(--color-text);">' + s.personName + (sEvent ? ' (' + sEvent.name + ')' : '') + ' - £' + s.price.toFixed(2) + '</p>';
+                    }).join('') + '</div>';
                 }
             }
         }
@@ -2261,7 +2365,7 @@ class GiftTracker {
             html += '<div class="mb-3" style="background-color: var(--color-surface); border-radius: 10px; padding: 6px; box-shadow: 0 1px 3px rgba(16,24,40,0.08), 0 1px 2px rgba(16,24,40,0.06);">' + peopleFilterOptions.map(([val, label]) => '<button onclick="window.app.peopleTypeFilter = \'' + val + '\'; window.app.showPeopleFilterPanel = false; window.app.render()" style="display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; border: none; cursor: pointer; background-color: ' + (this.peopleTypeFilter === val ? 'var(--color-secondary)' : 'transparent') + '; color: ' + (this.peopleTypeFilter === val ? 'var(--color-primary)' : 'var(--color-text)') + '; font-size: 13px; font-weight: 500;">' + label + '</button>').join('') + '</div>';
         }
         if (this.addingPerson) {
-            html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Person</h3><input type="text" id="pname" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="pbday" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="pcat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="friend">Friend</option><option value="family">Family</option></select><textarea id="pnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><div class="mb-2"><input type="checkbox" id="pmsg"><label for="pmsg" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="pfyi"><label for="pfyi" style="color: var(--color-text); margin-left: 8px;"> FYI Only (No Events)</label></div><div class="mb-2"><input type="checkbox" id="pxmas"><label for="pxmas" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><input type="text" id="plikes" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="pdislikes" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><div id="pbday-budget-field" class="mb-2"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday Budget (£)</label><input type="number" id="pbday-budget" placeholder="0" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" step="0.01"></div><div id="pxmas-budget-field" class="mb-2"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Christmas Budget (£)</label><input type="number" id="pxmas-budget" placeholder="0" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" step="0.01"></div><button onclick="const dateInput = document.getElementById(\'pbday\').value; if(!dateInput) { alert(\'Please select a birthday\'); return; } const [y, m, d] = dateInput.split(\'-\'); const bdayStr = d + \'-\' + m; window.app.addPerson(document.getElementById(\'pname\').value, bdayStr, y, document.getElementById(\'plikes\').value, document.getElementById(\'pdislikes\').value, document.getElementById(\'pnotes\').value, document.getElementById(\'pmsg\').checked, document.getElementById(\'pfyi\').checked, document.getElementById(\'pcat\').value, document.getElementById(\'pxmas\').checked, document.getElementById(\'pbday-budget\').value, document.getElementById(\'pxmas-budget\').value);" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddPerson()" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+            html += '<div class="mb-4 p-4 rounded-lg border" style="background-color: var(--color-surface); border-color: var(--color-border);"><h3 class="font-semibold mb-3" style="color: var(--color-text);">Add Person</h3><input type="text" id="pname" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="pbday" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="pcat" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="friend">Friend</option><option value="family">Family</option></select><textarea id="pnotes" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);"></textarea><div class="mb-2"><input type="checkbox" id="pmsg" onchange="window.app.toggleAddPersonBudgetFields()"><label for="pmsg" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="pfyi" onchange="window.app.toggleAddPersonBudgetFields()"><label for="pfyi" style="color: var(--color-text); margin-left: 8px;"> FYI Only (No Events)</label></div><div class="mb-2"><input type="checkbox" id="pxmas" onchange="window.app.toggleAddPersonBudgetFields()"><label for="pxmas" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><input type="text" id="plikes" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="pdislikes" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><div id="pbday-budget-field" class="mb-2"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday Budget (£)</label><input type="number" id="pbday-budget" placeholder="0" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" step="0.01"></div><div id="pxmas-budget-field" class="mb-2" style="display: none;"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Christmas Budget (£)</label><input type="number" id="pxmas-budget" placeholder="0" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);" step="0.01"></div><button onclick="const dateInput = document.getElementById(\'pbday\').value; if(!dateInput) { alert(\'Please select a birthday\'); return; } const [y, m, d] = dateInput.split(\'-\'); const bdayStr = d + \'-\' + m; window.app.addPerson(document.getElementById(\'pname\').value, bdayStr, y, document.getElementById(\'plikes\').value, document.getElementById(\'pdislikes\').value, document.getElementById(\'pnotes\').value, document.getElementById(\'pmsg\').checked, document.getElementById(\'pfyi\').checked, document.getElementById(\'pcat\').value, document.getElementById(\'pxmas\').checked, document.getElementById(\'pbday-budget\').value, document.getElementById(\'pxmas-budget\').value);" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Add</button><button onclick="window.app.toggleAddPerson()" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
         }
         const filtered = this.filterPeopleBySearch(this.getSortedPeople(), this.peopleSearchText).filter(p => {
             // Filter by type
@@ -2289,7 +2393,7 @@ class GiftTracker {
                 const isEdit = this.editingPerson === p.id;
                 if (isEdit) {
                     const currentDob = p.birthYear + '-' + p.birthday.split('-')[1] + '-' + p.birthday.split('-')[0];
-                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><input type="text" id="ep_name_' + p.id + '" value="' + p.fullName + '" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="ep_bday_' + p.id + '" value="' + currentDob + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="ep_cat_' + p.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="friend" ' + (p.category === 'friend' ? 'selected' : '') + '>Friend</option><option value="family" ' + (p.category === 'family' ? 'selected' : '') + '>Family</option></select><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday Budget (£)</label><input type="number" id="ep_bbudget_' + p.id + '" value="' + (p.birthdayBudget || '') + '" placeholder="Birthday budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Christmas Budget (£)</label><input type="number" id="ep_cbudget_' + p.id + '" value="' + (p.christmasBudget || '') + '" placeholder="Christmas budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="ep_likes_' + p.id + '" value="' + (p.likes || '') + '" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="ep_dislikes_' + p.id + '" value="' + (p.dislikes || '') + '" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="ep_notes_' + p.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + (p.notes || '') + '</textarea><div class="mb-2"><input type="checkbox" id="ep_msg_' + p.id + '" ' + (p.messageOnly ? 'checked' : '') + '><label for="ep_msg_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="ep_fyi_' + p.id + '" ' + (p.fyiOnly ? 'checked' : '') + '><label for="ep_fyi_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> FYI Only</label></div><div class="mb-2"><input type="checkbox" id="ep_xmas_' + p.id + '" ' + (p.includeInChristmas ? 'checked' : '') + '><label for="ep_xmas_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><button onclick="const dateInput = document.getElementById(\'ep_bday_' + p.id + '\').value; const [y, m, d] = dateInput.split(\'-\'); window.app.updatePerson(' + p.id + ', {fullName: document.getElementById(\'ep_name_' + p.id + '\').value, birthday: d + \'-\' + m, birthYear: parseInt(y), likes: document.getElementById(\'ep_likes_' + p.id + '\').value, dislikes: document.getElementById(\'ep_dislikes_' + p.id + '\').value, notes: document.getElementById(\'ep_notes_' + p.id + '\').value, category: document.getElementById(\'ep_cat_' + p.id + '\').value, birthdayBudget: document.getElementById(\'ep_bbudget_' + p.id + '\').value, christmasBudget: document.getElementById(\'ep_cbudget_' + p.id + '\').value, messageOnly: document.getElementById(\'ep_msg_' + p.id + '\').checked, fyiOnly: document.getElementById(\'ep_fyi_' + p.id + '\').checked, includeInChristmas: document.getElementById(\'ep_xmas_' + p.id + '\').checked}); window.app.editingPerson = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button><button onclick="window.app.editingPerson = null; window.app.render();" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                    html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><input type="text" id="ep_name_' + p.id + '" value="' + p.fullName + '" placeholder="Name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday</label><input type="date" id="ep_bday_' + p.id + '" value="' + currentDob + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Category</label><select id="ep_cat_' + p.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="friend" ' + (p.category === 'friend' ? 'selected' : '') + '>Friend</option><option value="family" ' + (p.category === 'family' ? 'selected' : '') + '>Family</option></select><div id="ep_bbudget_field_' + p.id + '" style="display: ' + ((p.messageOnly || p.fyiOnly) ? 'none' : '') + ';"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Birthday Budget (£)</label><input type="number" id="ep_bbudget_' + p.id + '" value="' + (p.birthdayBudget || '') + '" placeholder="Birthday budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"></div><div id="ep_cbudget_field_' + p.id + '" style="display: ' + (p.includeInChristmas ? '' : 'none') + ';"><label style="display: block; margin-bottom: 8px; color: var(--color-text); font-size: 12px;">Christmas Budget (£)</label><input type="number" id="ep_cbudget_' + p.id + '" value="' + (p.christmasBudget || '') + '" placeholder="Christmas budget" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"></div><input type="text" id="ep_likes_' + p.id + '" value="' + (p.likes || '') + '" placeholder="Likes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="ep_dislikes_' + p.id + '" value="' + (p.dislikes || '') + '" placeholder="Dislikes" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><textarea id="ep_notes_' + p.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + (p.notes || '') + '</textarea><div class="mb-2"><input type="checkbox" id="ep_msg_' + p.id + '" ' + (p.messageOnly ? 'checked' : '') + ' onchange="window.app.toggleEditPersonBudgetFields(' + p.id + ')"><label for="ep_msg_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> Birthday Message Only</label></div><div class="mb-2"><input type="checkbox" id="ep_fyi_' + p.id + '" ' + (p.fyiOnly ? 'checked' : '') + ' onchange="window.app.toggleEditPersonBudgetFields(' + p.id + ')"><label for="ep_fyi_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> FYI Only</label></div><div class="mb-2"><input type="checkbox" id="ep_xmas_' + p.id + '" ' + (p.includeInChristmas ? 'checked' : '') + ' onchange="window.app.toggleEditPersonBudgetFields(' + p.id + ')"><label for="ep_xmas_' + p.id + '" style="color: var(--color-text); margin-left: 8px;"> Include in Christmas</label></div><button onclick="const dateInput = document.getElementById(\'ep_bday_' + p.id + '\').value; const [y, m, d] = dateInput.split(\'-\'); window.app.updatePerson(' + p.id + ', {fullName: document.getElementById(\'ep_name_' + p.id + '\').value, birthday: d + \'-\' + m, birthYear: parseInt(y), likes: document.getElementById(\'ep_likes_' + p.id + '\').value, dislikes: document.getElementById(\'ep_dislikes_' + p.id + '\').value, notes: document.getElementById(\'ep_notes_' + p.id + '\').value, category: document.getElementById(\'ep_cat_' + p.id + '\').value, birthdayBudget: document.getElementById(\'ep_bbudget_' + p.id + '\').value, christmasBudget: document.getElementById(\'ep_cbudget_' + p.id + '\').value, messageOnly: document.getElementById(\'ep_msg_' + p.id + '\').checked, fyiOnly: document.getElementById(\'ep_fyi_' + p.id + '\').checked, includeInChristmas: document.getElementById(\'ep_xmas_' + p.id + '\').checked}); window.app.editingPerson = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button><button onclick="window.app.editingPerson = null; window.app.render();" class="px-4 py-2 rounded border" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
                 } else {
                     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                     const [day, month] = p.birthday.split('-');
@@ -2583,7 +2687,7 @@ class GiftTracker {
                         html += '<div class="flex items-center p-2 rounded mb-2" style="background-color: var(--color-secondary);"><input type="checkbox" id="msg_check_' + e.id + '" ' + (e.messaged ? 'checked' : '') + ' onchange="window.app.updateEvent(' + e.id + ', {messaged: this.checked})" style="cursor: pointer;"><label for="msg_check_' + e.id + '" style="color: var(--color-text); margin-left: 8px; cursor: pointer;"> Messaged</label></div>';
                     }
 
-                    // Received Gifts section - only relevant for events involving "Me" or "Adam".
+                    // Received Gifts section - only relevant for events involving one of the Settings-selected people.
                     // Split into per-person subsections when both are present on the same event.
                     if (this.isReceivedGiftsRelevantEvent(e)) {
                         const relevantPeople = this.getRelevantPeopleForEvent(e);
@@ -3066,7 +3170,7 @@ class GiftTracker {
             this.currentTab = 'gifts';
             this.showGiftsView = 'given';
             this.addingGift = true;
-            this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '' };
+            this.giftFormState = { giftName: '', person: '', event: null, price: '', shop: '', notes: '', status: 'idea', url: '', splitMode: false, splitTotalPrice: '', splits: [] };
         }
         this.render();
     }
