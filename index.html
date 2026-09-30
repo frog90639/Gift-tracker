@@ -1266,9 +1266,136 @@ class GiftTracker {
             this.render();
         }
     }
-    deleteGift(id) { this.gifts = this.gifts.filter(g => g.id !== id); this.events.forEach(e => { if (e.giftIds) e.giftIds = e.giftIds.filter(gid => gid !== id); }); this.saveData(); this.render(); }
+    _deleteGiftRecord(id) {
+        this.gifts = this.gifts.filter(g => g.id !== id);
+        this.events.forEach(e => {
+            if (e.giftIds) e.giftIds = e.giftIds.filter(gid => gid !== id);
+            if (e.giftAssignments) e.giftAssignments = e.giftAssignments.filter(ga => ga.giftId !== id);
+        });
+    }
+    deleteGift(id) { this._deleteGiftRecord(id); this.saveData(); this.render(); }
     expandGift(id) { this.expandedGift = this.expandedGift === id ? null : id; this.editingGift = null; this.render(); }
-    toggleEditGift(id) { this.editingGift = this.editingGift === id ? null : id; this.render(); }
+    initEditSplitState(id) {
+        const g = this.gifts.find(x => x.id === id);
+        if (g && g.splitGroupId) {
+            const group = this.gifts.filter(x => x.splitGroupId === g.splitGroupId).sort((a, b) => a.id - b.id);
+            this.editSplitState = {
+                splitMode: true,
+                splitTotalPrice: String(g.splitTotal || group.reduce((s, x) => s + x.price, 0)),
+                splits: group.map(x => ({ person: x.personName, eventId: x.eventId || '', amount: String(x.price) }))
+            };
+        } else {
+            this.editSplitState = { splitMode: false, splitTotalPrice: '', splits: [] };
+        }
+    }
+    toggleEditGift(id) {
+        if (this.editingGift === id) { this.editingGift = null; this.editSplitState = null; this.render(); return; }
+        this.editingGift = id;
+        this.initEditSplitState(id);
+        this.render();
+    }
+    toggleEditSplitMode(id) {
+        if (!this.editSplitState) this.initEditSplitState(id);
+        this.editSplitState.splitMode = !this.editSplitState.splitMode;
+        if (this.editSplitState.splitMode && (!this.editSplitState.splits || this.editSplitState.splits.length < 2)) {
+            const g = this.gifts.find(x => x.id === id);
+            this.editSplitState.splits = [
+                { person: g ? g.personName : '', eventId: g && g.eventId ? g.eventId : '', amount: g ? String(g.price) : '' },
+                { person: '', eventId: '', amount: '' }
+            ];
+            this.editSplitState.splitTotalPrice = g ? String(g.price) : '';
+        }
+        this.render();
+    }
+    addEditSplitRow() {
+        this.editSplitState.splits.push({ person: '', eventId: '', amount: '' });
+        this.render();
+    }
+    removeEditSplitRow(idx) {
+        if (this.editSplitState.splits.length <= 2) return;
+        this.editSplitState.splits.splice(idx, 1);
+        this.render();
+    }
+    updateEditSplitField(idx, field, value) {
+        this.editSplitState.splits[idx][field] = value;
+        if (field === 'person') this.editSplitState.splits[idx].eventId = '';
+        this.render();
+    }
+    splitEditGiftEvenly() {
+        const total = parseFloat(this.editSplitState.splitTotalPrice) || 0;
+        const n = this.editSplitState.splits.length;
+        if (n === 0) return;
+        const base = Math.floor((total / n) * 100) / 100;
+        this.editSplitState.splits.forEach((s, i) => {
+            s.amount = (i === n - 1) ? (total - base * (n - 1)).toFixed(2) : base.toFixed(2);
+        });
+        this.render();
+    }
+    renderEditGiftSplitRows(giftId) {
+        const es = this.editSplitState;
+        const splits = es.splits;
+        const total = splits.reduce((s, sp) => s + (parseFloat(sp.amount) || 0), 0);
+        let html = '<p style="color: var(--color-text-muted); font-size: 12px; margin: 4px 0 8px 0;">One gift, split across two or more people and/or events - each gets its own share of the price.</p>';
+        html += '<div class="flex gap-2 mb-2"><input type="number" id="eg_split_total_' + giftId + '" placeholder="Total price (£)" value="' + es.splitTotalPrice + '" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border);" oninput="window.app.editSplitState.splitTotalPrice = this.value"><button onclick="window.app.splitEditGiftEvenly()" class="px-3 py-2 rounded border text-sm font-medium" style="background-color: var(--color-secondary); color: var(--color-text); white-space: nowrap;">Split Evenly</button></div>';
+        splits.forEach((s, i) => {
+            const rowEvents = this.getEventsForPersonName(s.person);
+            html += '<div class="mb-2 p-2 rounded border" style="background-color: var(--color-bg); border-color: var(--color-border);">'
+                + '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><span style="color: var(--color-text-muted); font-size: 11px; font-weight: 600; text-transform: uppercase;">Share ' + (i + 1) + '</span>' + (splits.length > 2 ? '<button onclick="window.app.removeEditSplitRow(' + i + ')" style="background: none; border: none; color: var(--color-error); cursor: pointer; font-size: 11px; font-weight: 500;">Remove</button>' : '') + '</div>'
+                + '<select onchange="window.app.updateEditSplitField(' + i + ', \'person\', this.value)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (s.person === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>'
+                + (s.person ? '<select onchange="window.app.updateEditSplitField(' + i + ', \'eventId\', this.value)" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + rowEvents.map(e => '<option value="' + e.id + '"' + (String(s.eventId) === String(e.id) ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '')
+                + '<input type="number" placeholder="Amount (£)" value="' + s.amount + '" oninput="window.app.updateEditSplitField(' + i + ', \'amount\', this.value)" class="w-full p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border);">'
+                + '</div>';
+        });
+        html += '<button onclick="window.app.addEditSplitRow()" class="w-full py-2 mb-2 rounded-lg border text-sm font-medium" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-primary);">+ Add another share</button>';
+        html += '<p style="color: var(--color-text-muted); font-size: 12px; margin-bottom: 8px;">Shares total: <strong style="color: var(--color-text);">£' + total.toFixed(2) + '</strong></p>';
+        return html;
+    }
+    saveEditGift(id) {
+        const eventEl = document.getElementById('eg_event_' + id);
+        const updates = {
+            giftName: document.getElementById('eg_name_' + id).value,
+            personName: document.getElementById('eg_person_' + id).value,
+            eventId: eventEl ? parseInt(eventEl.value) || null : null,
+            price: parseFloat(document.getElementById('eg_price_' + id).value) || 0,
+            url: document.getElementById('eg_url_' + id).value,
+            shop: document.getElementById('eg_shop_' + id).value,
+            notes: document.getElementById('eg_notes_' + id).value,
+            status: document.getElementById('eg_status_' + id).value
+        };
+        const g = this.gifts.find(x => x.id === id);
+        if (g && g.splitGroupId) {
+            // Converting from a split gift back to a single one: drop the other shares.
+            this.getSplitSiblings(g).forEach(s => this._deleteGiftRecord(s.id));
+            delete g.splitGroupId;
+            delete g.splitTotal;
+        }
+        this.updateGift(id, updates);
+        this.editingGift = null;
+        this.editSplitState = null;
+    }
+    saveEditSplitGift(id) {
+        const g = this.gifts.find(x => x.id === id);
+        if (!g) return;
+        const name = document.getElementById('eg_name_' + id) ? document.getElementById('eg_name_' + id).value : g.giftName;
+        const url = document.getElementById('eg_url_' + id) ? document.getElementById('eg_url_' + id).value : g.url;
+        const shop = document.getElementById('eg_shop_' + id) ? document.getElementById('eg_shop_' + id).value : g.shop;
+        const notes = document.getElementById('eg_notes_' + id) ? document.getElementById('eg_notes_' + id).value : g.notes;
+        const status = document.getElementById('eg_status_' + id) ? document.getElementById('eg_status_' + id).value : g.status;
+        const validSplits = (this.editSplitState.splits || []).filter(s => s.person && parseFloat(s.amount) > 0);
+        if (validSplits.length < 2) { alert('Add at least two people/events with an amount to split this gift.'); return; }
+        const oldGroupId = g.splitGroupId;
+        const idsToRemove = oldGroupId ? this.gifts.filter(x => x.splitGroupId === oldGroupId).map(x => x.id) : [id];
+        idsToRemove.forEach(gid => this._deleteGiftRecord(gid));
+        const splitGroupId = oldGroupId || ('split_' + Date.now());
+        const splitTotal = validSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        validSplits.forEach(s => {
+            this._createGiftRecord(name, s.person, s.eventId, s.amount, status, g.category, url, notes, shop, { splitGroupId: splitGroupId, splitTotal: splitTotal });
+        });
+        this.editingGift = null;
+        this.editSplitState = null;
+        this.saveData();
+        this.render();
+    }
     getGiftsForEvent(eid) { return this.gifts.filter(g => g.eventId === eid); }
     getGiftsForPerson(name) { return this.gifts.filter(g => g.personName === name); }
     getGiftsForEventAndPerson(eid, name) { return this.gifts.filter(g => g.eventId === eid && g.personName === name); }
@@ -1568,16 +1695,16 @@ class GiftTracker {
         if (isExp) {
             const event = this.events.find(e => e.id === g.eventId);
             if (isEdit) {
+                if (!this.editSplitState) this.initEditSplitState(g.id);
+                const es = this.editSplitState;
                 const editPersonName = document.getElementById('eg_person_' + g.id) ? document.getElementById('eg_person_' + g.id).value : g.personName;
-                const editPersonEvents = editPersonName ? this.events.filter(e => {
-                    const person = this.people.find(p => p.fullName === editPersonName);
-                    return person && (e.personId === person.id || (e.people && e.people.some(ep => ep.name === editPersonName)));
-                }).sort((a, b) => {
-                    const [dA, mA, yA] = a.date.split('-');
-                    const [dB, mB, yB] = b.date.split('-');
-                    return new Date(parseInt(yA), parseInt(mA) - 1, parseInt(dA)) - new Date(parseInt(yB), parseInt(mB) - 1, parseInt(dB));
-                }) : [];
-                html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><input type="text" id="eg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><select id="eg_person_' + g.id + '" onchange="window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (g.personName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>' + (editPersonName ? '<select id="eg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + editPersonEvents.map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '') + '<input type="number" id="eg_price_' + g.id + '" value="' + g.price + '" placeholder="Price" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><input type="text" id="eg_url_' + g.id + '" value="' + g.url + '" placeholder="URL" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex gap-2 mb-2"><select id="eg_shop_' + g.id + '" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Shop</option>' + this.shops.map(s => '<option value="' + s + '"' + (g.shop === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select><button onclick="const shop = prompt(\'Enter new shop name:\'); if(shop) window.app.addShop(shop)" class="px-3 py-2 rounded text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div><textarea id="eg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + g.notes + '</textarea><select id="eg_status_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea"' + (g.status === 'idea' ? ' selected' : '') + '>Idea</option><option value="planned"' + (g.status === 'planned' ? ' selected' : '') + '>Planned</option><option value="bought"' + (g.status === 'bought' ? ' selected' : '') + '>Bought</option><option value="wrapped"' + (g.status === 'wrapped' ? ' selected' : '') + '>Wrapped</option><option value="gifted"' + (g.status === 'gifted' ? ' selected' : '') + '>Gifted</option></select><button onclick="const eventEl = document.getElementById(\'eg_event_' + g.id + '\'); window.app.updateGift(' + g.id + ', {giftName: document.getElementById(\'eg_name_' + g.id + '\').value, personName: document.getElementById(\'eg_person_' + g.id + '\').value, eventId: eventEl ? parseInt(eventEl.value) || null : null, price: parseFloat(document.getElementById(\'eg_price_' + g.id + '\').value) || 0, url: document.getElementById(\'eg_url_' + g.id + '\').value, shop: document.getElementById(\'eg_shop_' + g.id + '\').value, notes: document.getElementById(\'eg_notes_' + g.id + '\').value, status: document.getElementById(\'eg_status_' + g.id + '\').value}); window.app.editingGift = null; window.app.render();" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button><button onclick="window.app.toggleEditGift(' + g.id + ')" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
+                const editPersonEvents = editPersonName ? this.getEventsForPersonName(editPersonName) : [];
+                const editSplitToggle = '<div class="mb-2"><input type="checkbox" id="eg_splitmode_' + g.id + '" ' + (es.splitMode ? 'checked' : '') + ' onchange="window.app.toggleEditSplitMode(' + g.id + ')"><label for="eg_splitmode_' + g.id + '" style="color: var(--color-text); margin-left: 8px;"> Split this gift between multiple people/events</label></div>';
+                const singleEditFields = '<select id="eg_person_' + g.id + '" onchange="window.app.render()" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Person (optional)</option>' + this.getGiftablePeople().map(p => '<option value="' + p.fullName + '"' + (g.personName === p.fullName ? ' selected' : '') + '>' + p.fullName + '</option>').join('') + '</select>' + (editPersonName ? '<select id="eg_event_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Event (optional)</option>' + editPersonEvents.map(e => '<option value="' + e.id + '"' + (g.eventId === e.id ? ' selected' : '') + '>' + e.name + '</option>').join('') + '</select>' : '') + '<input type="number" id="eg_price_' + g.id + '" value="' + g.price + '" placeholder="Price" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">';
+                const editSaveBtn = es.splitMode
+                    ? '<button onclick="window.app.saveEditSplitGift(' + g.id + ')" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button>'
+                    : '<button onclick="window.app.saveEditGift(' + g.id + ')" class="px-4 py-2 rounded text-white mr-2" style="background-color: var(--color-primary); color: var(--color-primary-text);">Save</button>';
+                html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><input type="text" id="eg_name_' + g.id + '" value="' + g.giftName + '" placeholder="Gift name" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + editSplitToggle + (es.splitMode ? this.renderEditGiftSplitRows(g.id) : singleEditFields) + '<input type="text" id="eg_url_' + g.id + '" value="' + g.url + '" placeholder="URL" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><div class="flex gap-2 mb-2"><select id="eg_shop_' + g.id + '" class="flex-1 p-2 rounded border" style="background-color: var(--color-surface); border-color: var(--color-border); color: var(--color-text);"><option value="">Select Shop</option>' + this.shops.map(s => '<option value="' + s + '"' + (g.shop === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select><button onclick="const shop = prompt(\'Enter new shop name:\'); if(shop) window.app.addShop(shop)" class="px-3 py-2 rounded text-white" style="background-color: var(--color-primary); color: var(--color-primary-text);">+</button></div><textarea id="eg_notes_' + g.id + '" placeholder="Notes" class="w-full p-2 rounded border mb-2" rows="2" style="background-color: var(--color-surface); border-color: var(--color-border);">' + g.notes + '</textarea><select id="eg_status_' + g.id + '" class="w-full p-2 rounded border mb-2" style="background-color: var(--color-surface); border-color: var(--color-border);"><option value="idea"' + (g.status === 'idea' ? ' selected' : '') + '>Idea</option><option value="planned"' + (g.status === 'planned' ? ' selected' : '') + '>Planned</option><option value="bought"' + (g.status === 'bought' ? ' selected' : '') + '>Bought</option><option value="wrapped"' + (g.status === 'wrapped' ? ' selected' : '') + '>Wrapped</option><option value="gifted"' + (g.status === 'gifted' ? ' selected' : '') + '>Gifted</option></select>' + editSaveBtn + '<button onclick="window.app.toggleEditGift(' + g.id + ')" class="px-4 py-2 rounded" style="background-color: var(--color-secondary); color: var(--color-text);">Cancel</button></div>';
             } else {
                 html += '<div class="mt-3 pt-3 border-t" style="border-color: var(--color-border);"><div class="p-2 rounded mb-2 border" style="background-color: var(--color-secondary); border-color: var(--color-border);"><p class="text-xs" style="color: var(--color-text-muted);">Event</p><p style="color: var(--color-text);">' + (event ? event.name : 'No event') + '</p></div>';
                 if (g.url) {
@@ -1598,7 +1725,7 @@ class GiftTracker {
                 }
             }
         }
-        html += '</div></div><div class="swipe-edit" onclick="window.app.expandGift(' + g.id + '); window.app.editingGift = ' + g.id + '; window.app.render();">Edit</div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
+        html += '</div></div><div class="swipe-edit" onclick="window.app.expandGift(' + g.id + '); window.app.editingGift = ' + g.id + '; window.app.initEditSplitState(' + g.id + '); window.app.render();">Edit</div><div class="swipe-delete" onclick="window.app.deleteGift(' + g.id + ')">Delete</div></div>';
         return html;
     }
     renderGroupHeader(label, count) {
